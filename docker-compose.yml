@@ -24,6 +24,11 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: all
       # Unset ROCm hint so NVIDIA GPU discovery works in Docker (ollama/ollama#11852).
       ROCR_VISIBLE_DEVICES: ""
+      # Quantized KV cache (needs flash attention) shrinks the attention
+      # cache footprint so gemma4:e2b leaves more of the shared 8GB GPU
+      # free for other services (e.g. WeInterviewer's SILMA TTS).
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
     volumes:
       - ollama_data:/root/.ollama
     ports:
