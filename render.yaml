@@ -32,11 +32,11 @@ services:
       - key: OLLAMA_BASE_URL
         value: http://rag-ollama:11434
       - key: OLLAMA_MODEL
-        value: qwen2.5:14b
+        value: gemma4:e2b
       - key: EMBEDDING_MODEL
         value: intfloat/multilingual-e5-large
       - key: LLM_TEMPERATURE
-        value: "0.9"
+        value: "0.3"
       - key: VECTOR_STORE_PATH
         value: /app/data/vector_store
       - key: UPLOAD_DIR
@@ -66,7 +66,7 @@ services:
       sizeGB: 25
     envVars:
       - key: OLLAMA_MODEL
-        value: qwen2.5:14b
+        value: gemma4:e2b
 
 databases:
   - name: rag-postgres

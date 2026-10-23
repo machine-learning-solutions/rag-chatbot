@@ -1,5 +1,5 @@
-# Match docker-compose pin: 0.30+ CUDA backend fails on driver 535.
-FROM ollama/ollama:0.24.0
+# Match docker-compose pin.
+FROM ollama/ollama:0.40.9
 
 WORKDIR /app
 

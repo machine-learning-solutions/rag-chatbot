@@ -10,9 +10,9 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://rag:rag_secret@localhost:5432/ragdb"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:14b"
+    ollama_model: str = "gemma4:e2b"
     embedding_model: str = "intfloat/multilingual-e5-large"
-    llm_temperature: float = 0.9
+    llm_temperature: float = 0.3
     llm_num_predict: int = 768
     arabic_polish_enabled: bool = True
     max_context_chunks: int = 5
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     context_score_margin: float = 1.5
     portfolio_llm_num_predict: int = 2048
     portfolio_llm_num_predict_medium: int = 1024
-    portfolio_llm_num_predict_short: int = 512
+    portfolio_llm_num_predict_short: int = 768
     portfolio_max_context_chunks: int = 10
     portfolio_context_chunk_max_chars: int = 2000
     portfolio_context_max_chars: int = 5500

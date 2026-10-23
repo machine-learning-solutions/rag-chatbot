@@ -15,8 +15,7 @@ services:
     restart: unless-stopped
 
   ollama:
-    # Pin below 0.30: latest CUDA backend breaks on driver 535 (RTX 4060/3050).
-    image: ollama/ollama:0.24.0
+    image: ollama/ollama:0.40.9
     gpus: all
     environment:
       # Finite keep-alive so the model unloads from VRAM after idle time,
@@ -46,7 +45,7 @@ services:
     restart: unless-stopped
 
   ollama-init:
-    image: ollama/ollama:0.24.0
+    image: ollama/ollama:0.40.9
     depends_on:
       ollama:
         condition: service_healthy
@@ -55,9 +54,9 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        ollama pull qwen2.5:14b || true
+        ollama pull gemma4:e2b || true
         # Pre-load weights so the first visitor request stays under proxy timeouts.
-        printf 'warmup' | ollama run qwen2.5:14b >/dev/null 2>&1 || true
+        printf 'warmup' | ollama run gemma4:e2b >/dev/null 2>&1 || true
         echo "Ollama model pull and warmup complete"
     restart: "no"
 
@@ -70,9 +69,9 @@ services:
       TORCH_DEVICE: cpu
       DATABASE_URL: postgresql+asyncpg://rag:rag_secret@postgres:5432/ragdb
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: qwen2.5:14b
+      OLLAMA_MODEL: gemma4:e2b
       EMBEDDING_MODEL: intfloat/multilingual-e5-large
-      LLM_TEMPERATURE: "0.9"
+      LLM_TEMPERATURE: "0.3"
       VECTOR_STORE_PATH: /app/data/vector_store
       UPLOAD_DIR: /app/data/uploads
       CHUNK_SIZE: "512"
@@ -99,7 +98,7 @@ services:
       LLM_NUM_PREDICT: "512"
       PORTFOLIO_LLM_NUM_PREDICT: "2048"
       PORTFOLIO_LLM_NUM_PREDICT_MEDIUM: "1024"
-      PORTFOLIO_LLM_NUM_PREDICT_SHORT: "512"
+      PORTFOLIO_LLM_NUM_PREDICT_SHORT: "768"
       PORTFOLIO_MAX_CONTEXT_CHUNKS: "10"
       PORTFOLIO_CONTEXT_CHUNK_MAX_CHARS: "2000"
       PORTFOLIO_CONTEXT_MAX_CHARS: "5500"
