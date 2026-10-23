@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-MODEL_NAME="${OLLAMA_MODEL:-gemma4:e2b}"
+MODEL_NAME="${OLLAMA_MODEL:-qwen2.5:14b}"
 
 # Start the server in the background so we can pull a model.
 ollama serve &

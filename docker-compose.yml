@@ -19,13 +19,17 @@ services:
     image: ollama/ollama:0.24.0
     gpus: all
     environment:
-      OLLAMA_KEEP_ALIVE: "-1"
+      # Finite keep-alive so the model unloads from VRAM after idle time,
+      # freeing the shared 8GB GPU for other services (e.g. WeInterviewer's
+      # SILMA TTS) instead of holding ~7GB forever. First request after an
+      # idle period pays a reload cost instead of being instant.
+      OLLAMA_KEEP_ALIVE: "5m"
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: all
       # Unset ROCm hint so NVIDIA GPU discovery works in Docker (ollama/ollama#11852).
       ROCR_VISIBLE_DEVICES: ""
       # Quantized KV cache (needs flash attention) shrinks the attention
-      # cache footprint so gemma4:e2b leaves more of the shared 8GB GPU
+      # cache footprint so qwen2.5:14b leaves more of the shared 8GB GPU
       # free for other services (e.g. WeInterviewer's SILMA TTS).
       OLLAMA_FLASH_ATTENTION: "1"
       OLLAMA_KV_CACHE_TYPE: "q8_0"
@@ -51,9 +55,9 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        ollama pull gemma4:e2b || ollama pull gemma4:e4b || true
+        ollama pull qwen2.5:14b || true
         # Pre-load weights so the first visitor request stays under proxy timeouts.
-        printf 'warmup' | ollama run gemma4:e2b --think=false >/dev/null 2>&1 || true
+        printf 'warmup' | ollama run qwen2.5:14b >/dev/null 2>&1 || true
         echo "Ollama model pull and warmup complete"
     restart: "no"
 
@@ -66,7 +70,7 @@ services:
       TORCH_DEVICE: cpu
       DATABASE_URL: postgresql+asyncpg://rag:rag_secret@postgres:5432/ragdb
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: gemma4:e2b
+      OLLAMA_MODEL: qwen2.5:14b
       EMBEDDING_MODEL: intfloat/multilingual-e5-large
       LLM_TEMPERATURE: "0.9"
       VECTOR_STORE_PATH: /app/data/vector_store

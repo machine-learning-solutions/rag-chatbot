@@ -7,7 +7,7 @@
 ```
 ┌─────────────┐     ┌──────────────┐     ┌─────────┐
 │  Streamlit  │────▶│   FastAPI    │────▶│ Ollama  │
-│  frontend   │     │   backend    │     │ Gemma 4 │
+│  frontend   │     │   backend    │     │ Qwen2.5 │
 └─────────────┘     └──────┬───────┘     └─────────┘
                            │
               ┌────────────┼────────────┐
@@ -26,7 +26,7 @@
 | | Metadata | PostgreSQL — filename, page, chunk text |
 | **Retrieval** | Search | TurboVec Top-K + filter by `document_id` |
 | | Reranker | Optional cross-encoder |
-| **Generation** | LLM | Ollama — Gemma 4 / Mistral |
+| **Generation** | LLM | Ollama — Qwen2.5 / Mistral |
 | | UI | Streamlit frontend + FastAPI backend |
 
 ## Quick Start (Docker)
@@ -42,7 +42,7 @@ docker compose up --build
 | **API (FastAPI)** | http://localhost:8000/docs |
 | **Ollama** | http://localhost:11434 |
 
-First run downloads the embedding model (~2 GB) and pulls `gemma4:e2b` via Ollama — allow several minutes.
+First run downloads the embedding model (~2 GB) and pulls `qwen2.5:14b` via Ollama — allow several minutes.
 
 ### Pull a different Ollama model
 
@@ -58,7 +58,7 @@ Then set `OLLAMA_MODEL=mistral` in `docker-compose.yml`.
 
 ```bash
 docker compose up postgres ollama -d
-docker compose exec ollama ollama pull gemma4:e2b
+docker compose exec ollama ollama pull qwen2.5:14b
 ```
 
 ### 2. Backend
@@ -115,7 +115,7 @@ Environment variables (see `backend/.env.example`):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EMBEDDING_MODEL` | `intfloat/multilingual-e5-large` | Local embedding model |
-| `OLLAMA_MODEL` | `gemma4:e2b` | Ollama model name |
+| `OLLAMA_MODEL` | `qwen2.5:14b` | Ollama model name |
 | `CHUNK_SIZE` | `512` | Token chunk size |
 | `CHUNK_OVERLAP` | `64` | Token overlap |
 | `TURBOVEC_BIT_WIDTH` | `4` | Quantization (2 or 4) |

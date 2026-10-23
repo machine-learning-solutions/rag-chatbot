@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://rag:rag_secret@localhost:5432/ragdb"
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "gemma4:e2b"
+    ollama_model: str = "qwen2.5:14b"
     embedding_model: str = "intfloat/multilingual-e5-large"
     llm_temperature: float = 0.9
     llm_num_predict: int = 768
