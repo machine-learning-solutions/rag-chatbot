@@ -126,6 +126,10 @@ services:
       BACKEND_URL: http://backend:8000
     ports:
       - "8501:8501"
+      # Local dev convenience: same 300x scheme as the portfolio (3000) and
+      # assestant (3001) — the public ngrok tunnel still goes through the
+      # gateway (:9080), unaffected by this.
+      - "3002:8501"
     depends_on:
       - backend
     restart: unless-stopped
