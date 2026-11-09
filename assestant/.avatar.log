@@ -24,3 +24,4 @@ INFO:     127.0.0.1:47884 - "GET /avatar-video/324593452d9342fa8770e69cc8d011fd.
 [TIMING] /speak tts=1.187s lipsync_endpoint=41.510s total=42.697s text_len=273
 INFO:     127.0.0.1:58038 - "POST /speak HTTP/1.1" 200 OK
 INFO:     127.0.0.1:58038 - "GET /avatar-video/c5e2fcf74d144adc800df4c8767d24e5.mp4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59220 - "POST /transcribe HTTP/1.1" 200 OK
