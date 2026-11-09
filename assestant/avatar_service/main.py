@@ -85,11 +85,10 @@ def detect_voice(text: str) -> PiperVoice:
 
 app = FastAPI()
 
-# Dual Whisper: English uses stock large-v3-turbo (faster/lighter than
-# large-v3); Arabic uses a multi-dialect fine-tune shipped as CTranslate2
-# int8 (dev-ahmedhany/...-arabic-ft-ct2-int8) so we keep Arabic accuracy
-# without the VRAM cost of full large-v3. Both together stay near the old
-# single large-v3 footprint on this 8GB GPU.
+# Dual Whisper: English large-v3-turbo stays on GPU for fast mic turns.
+# Arabic multi-dialect CT2 fine-tune stays on CPU (int8) so its weights do
+# not compete with Wav2Lip/GFPGAN on this 8GB card during /speak/stream --
+# mic clips are short enough that CPU AR STT is acceptable.
 WHISPER_EN_MODEL_ID = os.environ.get("WHISPER_EN_MODEL", "large-v3-turbo")
 WHISPER_AR_MODEL_ID = os.environ.get(
     "WHISPER_AR_MODEL",
@@ -97,17 +96,21 @@ WHISPER_AR_MODEL_ID = os.environ.get(
 )
 
 
-def _load_whisper(model_id: str, compute_type: str) -> WhisperModel:
+def _load_whisper(model_id: str, device: str, compute_type: str) -> WhisperModel:
     try:
-        return WhisperModel(model_id, device="cuda", compute_type=compute_type)
+        return WhisperModel(model_id, device=device, compute_type=compute_type)
     except Exception as exc:
-        print(f"[WARN] Whisper GPU load failed ({model_id}): {exc}; falling back to CPU", flush=True)
+        print(
+            f"[WARN] Whisper load failed ({model_id} on {device}/{compute_type}): {exc}; "
+            "falling back to CPU int8",
+            flush=True,
+        )
         return WhisperModel(model_id, device="cpu", compute_type="int8")
 
 
-WHISPER_MODEL_EN = _load_whisper(WHISPER_EN_MODEL_ID, "float16")
+WHISPER_MODEL_EN = _load_whisper(WHISPER_EN_MODEL_ID, "cuda", "float16")
 try:
-    WHISPER_MODEL_AR = _load_whisper(WHISPER_AR_MODEL_ID, "int8_float16")
+    WHISPER_MODEL_AR = _load_whisper(WHISPER_AR_MODEL_ID, "cpu", "int8")
 except Exception as exc:
     print(f"[WARN] Arabic Whisper unavailable ({exc}); Arabic falls back to EN model", flush=True)
     WHISPER_MODEL_AR = WHISPER_MODEL_EN
@@ -312,7 +315,8 @@ def speak_stream(req: SpeakRequest):
     Event sequence:
       1. After TTS: {audio_url, chunk_seconds} -- full wav for continuous
          master-audio playback on the client (video chunks stay muted).
-      2. Per segment: {chunk_index, chunk_start, video_url, is_last}.
+      2. Per segment: {chunk_index, chunk_start, chunk_duration,
+         video_url, is_last} with exact frame-derived timings.
 
     On failure mid-stream, emits {"error": "..."} and ends -- the client
     plays whatever chunks already arrived and stops there, rather than this
@@ -352,14 +356,21 @@ def speak_stream(req: SpeakRequest):
             def out_path_fn(i):
                 return str(OUTPUT_DIR / f"{job_id}_{i}.mp4")
 
-            for seg_path, seg_index, is_last in resident_inference.generate_chunks(
+            for (
+                seg_path,
+                seg_index,
+                is_last,
+                chunk_start,
+                chunk_duration,
+            ) in resident_inference.generate_chunks(
                 str(wav_path), out_path_fn, chunk_seconds=STREAM_CHUNK_SECONDS
             ):
                 filename = Path(seg_path).name
                 yield _sse(
                     {
                         "chunk_index": seg_index,
-                        "chunk_start": seg_index * STREAM_CHUNK_SECONDS,
+                        "chunk_start": chunk_start,
+                        "chunk_duration": chunk_duration,
                         "video_url": f"/avatar-video/{filename}",
                         "is_last": is_last,
                     }

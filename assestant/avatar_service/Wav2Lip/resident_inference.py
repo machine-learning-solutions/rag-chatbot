@@ -208,8 +208,9 @@ def _generate_segments(audio_path, out_path_fn, chunk_frames):
     inference against the cached static face in groups of `chunk_frames`
     video frames (None = one segment covering the whole clip), writes each
     segment to its own single-streamed-encode mp4 (out_path_fn(index)), and
-    yields (path, index, is_last) as soon as that segment's file is ready --
-    before later segments have even started rendering.
+    yields (path, index, is_last, chunk_start, chunk_duration) as soon as
+    that segment's file is ready -- before later segments have even started
+    rendering.
     """
     if _model is None or _cached_face is None:
         raise RuntimeError("resident_inference.init() must be called before generate()")
@@ -264,7 +265,11 @@ def _generate_segments(audio_path, out_path_fn, chunk_frames):
         # unmodified -- no -ss/-t -- so that path stays byte-for-byte what it
         # was before this function existed. Multi-segment calls trim each
         # segment's matching slice out of the one full synthesized WAV.
+        # Exact start/duration (from frame counts) are yielded to the client
+        # so master-audio sync doesn't drift off the nominal chunk_seconds.
         if chunk_frames is None:
+            seg_start_sec = 0.0
+            seg_duration_sec = len(seg_mel_chunks) / FPS
             cmd = _ffmpeg_cmd(seg_out_path, frame_w, frame_h, even_w, even_h, audio_path, None, None)
         else:
             seg_start_sec = (seg_index * segment_size) / FPS
@@ -351,7 +356,7 @@ def _generate_segments(audio_path, out_path_fn, chunk_frames):
             flush=True,
         )
 
-        yield seg_out_path, seg_index, is_last
+        yield seg_out_path, seg_index, is_last, seg_start_sec, seg_duration_sec
 
 
 def generate(audio_path: str, out_path: str) -> None:
@@ -365,10 +370,10 @@ def generate(audio_path: str, out_path: str) -> None:
 
 def generate_chunks(audio_path: str, out_path_fn, chunk_seconds: float = 4.0):
     """Like generate(), but splits the clip into ~chunk_seconds segments and
-    yields (path, index, is_last) for each as soon as it's ready, instead of
-    waiting for the whole clip -- lets a streaming caller start playback
-    after the first segment instead of after the full render. out_path_fn
-    is called with each 0-based segment index and must return a unique path
-    for it."""
+    yields (path, index, is_last, chunk_start, chunk_duration) for each as
+    soon as it's ready, instead of waiting for the whole clip -- lets a
+    streaming caller start playback after the first segment instead of after
+    the full render. out_path_fn is called with each 0-based segment index
+    and must return a unique path for it."""
     chunk_frames = max(1, round(chunk_seconds * FPS))
     yield from _generate_segments(audio_path, out_path_fn, chunk_frames=chunk_frames)
