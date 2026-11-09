@@ -99,6 +99,26 @@ def init(checkpoint_path: str, face_image_path: str, gfpgan_checkpoint_path: str
         _restore_enabled = True
 
 
+def warmup() -> None:
+    """Run one dummy forward pass through each model at the exact shapes
+    generate() uses (full Wav2Lip batch, single GFPGAN call) so cuDNN's
+    benchmark-mode algorithm search pays its one-time cost now instead of
+    during the first real request."""
+    if _model is None or _cached_face is None:
+        return
+
+    img_t = torch.zeros(WAV2LIP_BATCH_SIZE, 6, IMG_SIZE, IMG_SIZE, device=DEVICE)
+    mel_t = torch.zeros(WAV2LIP_BATCH_SIZE, 1, 80, MEL_STEP_SIZE, device=DEVICE)
+    with torch.no_grad():
+        _model(mel_t, img_t)
+
+    if _restore_enabled:
+        face_restore.restore(_cached_face["frame"])
+
+    if DEVICE == "cuda":
+        torch.cuda.synchronize()
+
+
 def _prepare_batch(img_batch, mel_batch, frame_batch, coords_batch):
     img_batch_np = np.asarray(img_batch)
     mel_batch_np = np.asarray(mel_batch)
@@ -163,8 +183,58 @@ def generate(audio_path: str, out_path: str) -> None:
     frame = _cached_face["frame"]
     frame_h, frame_w = frame.shape[:-1]
 
-    tmp_avi = out_path + ".tmp.avi"
-    out = cv2.VideoWriter(tmp_avi, cv2.VideoWriter_fourcc(*"DIVX"), FPS, (frame_w, frame_h))
+    # Single streamed encode instead of cv2.VideoWriter(DIVX) -> tmp .avi ->
+    # a second full ffmpeg decode+reencode pass: ffmpeg reads raw BGR frames
+    # from this pipe as they're produced and encodes directly to out_path.
+    # This removes one full encode/decode round trip (so no DIVX-induced
+    # quality loss before the final encode either) and, because it's a
+    # separate process draining the pipe concurrently, its encode time
+    # overlaps with this loop's GPU work instead of adding to it afterward.
+    # libx264's yuv420p output needs even dimensions; the reference frame's
+    # raw size isn't guaranteed to be (e.g. 678x715). The old cv2.VideoWriter
+    # (DIVX) path silently rounded this down before its own encode, so
+    # cropping to even here matches that existing behavior rather than
+    # changing it.
+    even_w = frame_w - (frame_w % 2)
+    even_h = frame_h - (frame_h % 2)
+
+    ffmpeg_stderr_path = out_path + ".ffmpeg.log"
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgr24",
+        "-s",
+        f"{frame_w}x{frame_h}",
+        "-r",
+        str(FPS),
+        "-i",
+        "-",
+        "-i",
+        audio_path,
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-vf",
+        f"crop={even_w}:{even_h}:0:0",
+        "-c:v",
+        "libx264",
+        "-q:v",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        out_path,
+    ]
+    ffmpeg_stderr_file = open(ffmpeg_stderr_path, "wb")
+    # stderr -> a file, not a pipe: ffmpeg writes periodic progress lines
+    # there for the whole clip's duration, and an unread PIPE would fill its
+    # OS buffer and deadlock against this loop's stdin writes on long clips.
+    proc = sp.Popen(cmd, stdin=sp.PIPE, stdout=sp.DEVNULL, stderr=ffmpeg_stderr_file)
 
     # GPU-batching GFPGAN restoration was tried and rejected (see face_restore.py
     # docstring: no win at small batch sizes, OOM risk at large ones on this 8GB
@@ -200,35 +270,39 @@ def generate(audio_path: str, out_path: str) -> None:
                     _t_restore_total += time.perf_counter() - _t_c
                     _n_restored += 1
                 _t_d = time.perf_counter()
-                out.write(f)
+                try:
+                    proc.stdin.write(f.tobytes())
+                except BrokenPipeError as exc:
+                    proc.wait()
+                    with open(ffmpeg_stderr_path, "rb") as fh:
+                        err_tail = fh.read()[-1500:]
+                    raise RuntimeError(
+                        f"ffmpeg exited early: {err_tail.decode(errors='ignore')}"
+                    ) from exc
                 _t_write_total += time.perf_counter() - _t_d
                 frame_idx += 1
                 _n_frames += 1
     finally:
-        out.release()
+        try:
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        proc.wait()
+        ffmpeg_stderr_file.close()
     _t_frames_done = time.perf_counter()
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        audio_path,
-        "-i",
-        tmp_avi,
-        "-strict",
-        "-2",
-        "-q:v",
-        "1",
-        out_path,
-    ]
-    result = sp.run(cmd, stdout=sp.PIPE, stderr=sp.PIPE)
+    # By this point ffmpeg has already consumed and encoded every frame
+    # concurrently with the loop above (it was draining the pipe as fast as
+    # frames arrived, far faster than GFPGAN's per-frame GPU cost) -- wait()
+    # just lets it flush the trailer, so ffmpeg_mux below is near-zero rather
+    # than a second full encode pass.
     _t_ffmpeg_done = time.perf_counter()
-    try:
-        os.remove(tmp_avi)
-    except OSError:
-        pass
-    if result.returncode != 0 or not os.path.exists(out_path):
-        raise RuntimeError(f"ffmpeg mux failed: {result.stderr.decode(errors='ignore')[-1500:]}")
+
+    if proc.returncode != 0 or not os.path.exists(out_path):
+        with open(ffmpeg_stderr_path, "rb") as fh:
+            err_tail = fh.read()[-1500:]
+        os.remove(ffmpeg_stderr_path)
+        raise RuntimeError(f"ffmpeg mux failed: {err_tail.decode(errors='ignore')}")
+    os.remove(ffmpeg_stderr_path)
 
     print(
         f"[TIMING] frames={_n_frames} restored={_n_restored} "

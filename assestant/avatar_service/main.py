@@ -14,6 +14,20 @@ from pydantic import BaseModel
 from faster_whisper import WhisperModel
 from piper import PiperVoice
 
+# cuDNN benchmark mode autotunes and caches the fastest conv algorithm for the
+# (always-identical, per TIMING logs the dominant cost by far) GFPGAN 512x512
+# call and Wav2Lip's batched forward -- pure algorithm selection, no precision
+# change. TF32 matmul trims the remaining fp32 GEMMs on this RTX 4060's Ada
+# tensor cores; unlike the naive .half() cast face_restore.py's docstring
+# already tried and rejected (garbled StyleGAN2 output), TF32's reduced
+# mantissa stays well clear of the dynamic-range instability that caused that,
+# so it doesn't carry the same quality risk. cudnn.allow_tf32 is already True
+# by default in this torch version -- set explicitly so behavior doesn't
+# depend on the installed version's default.
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 BASE_DIR = Path(__file__).resolve().parent
 WAV2LIP_DIR = BASE_DIR / "Wav2Lip"
 CHECKPOINT = WAV2LIP_DIR / "checkpoints" / "wav2lip_gan.pth"
@@ -59,6 +73,11 @@ PIPER_VOICE_AR = PiperVoice.load(str(PIPER_VOICE_AR_PATH))
 # A GFPGAN restoration pass (also resident, also landmark-cached) sharpens
 # Wav2Lip's inherently blurry 96px-upscaled output.
 resident_inference.init(str(CHECKPOINT), str(REFERENCE_FACE), str(GFPGAN_CHECKPOINT))
+
+# Run one throwaway forward pass through each model now, at startup, so
+# cudnn.benchmark's one-time algorithm search (set above) happens here
+# instead of adding its cost to the first real user request.
+resident_inference.warmup()
 
 # --- GPU clock keep-alive -----------------------------------------------
 # Profiling found the dominant source of LATENCY VARIANCE (not the ~2.2s
