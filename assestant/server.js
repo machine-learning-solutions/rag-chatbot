@@ -86,6 +86,7 @@ app.post("/api/speak", async (req, res) => {
 
     if (!avatarRes.ok) {
       const detail = await avatarRes.text();
+      console.error(`Avatar service /speak failed (${avatarRes.status}):`, detail);
       res.status(502).json({ error: "Avatar service failed", detail });
       return;
     }

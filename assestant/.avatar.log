@@ -8,32 +8,19 @@
   load_net = torch.load(model_path, map_location=lambda storage, loc: storage)
 /home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/assestant/avatar_service/.venv/lib/python3.11/site-packages/gfpgan/utils.py:92: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
   loadnet = torch.load(model_path)
-INFO:     Started server process [1399635]
+INFO:     Started server process [1526893]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8010 (Press CTRL+C to quit)
-INFO:     127.0.0.1:34534 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:34550 - "GET /health HTTP/1.1" 200 OK
-[TIMING] frames=884 restored=442 wav+mel=0.627s wav2lip_fwd_total=7.352s restore_total=35.774s videowriter_total=0.980s frame_loop_wallclock=44.743s ffmpeg_mux=0.000s generate_total=45.369s
-[TIMING] /speak tts=0.781s lipsync_endpoint=45.370s total=46.151s text_len=606
-INFO:     127.0.0.1:33256 - "POST /speak HTTP/1.1" 200 OK
-[TIMING] frames=181 restored=91 wav+mel=0.025s wav2lip_fwd_total=1.861s restore_total=9.307s videowriter_total=0.214s frame_loop_wallclock=11.716s ffmpeg_mux=0.000s generate_total=11.741s
-[TIMING] /speak tts=0.160s lipsync_endpoint=11.742s total=11.901s text_len=134
-INFO:     127.0.0.1:57674 - "POST /speak HTTP/1.1" 200 OK
-[TIMING] frames=184 restored=92 wav+mel=0.077s wav2lip_fwd_total=1.844s restore_total=10.207s videowriter_total=0.286s frame_loop_wallclock=12.729s ffmpeg_mux=0.000s generate_total=12.806s
-[TIMING] /speak tts=0.409s lipsync_endpoint=12.807s total=13.216s text_len=134
-INFO:     127.0.0.1:38068 - "POST /speak HTTP/1.1" 200 OK
-INFO:     127.0.0.1:46708 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:56532 - "POST /speak HTTP/1.1" 500 Internal Server Error
-[TIMING] frames=6119 restored=3060 wav+mel=0.616s wav2lip_fwd_total=20.804s restore_total=232.682s videowriter_total=5.189s frame_loop_wallclock=261.829s ffmpeg_mux=0.000s generate_total=262.445s
-[TIMING] /speak tts=9.834s lipsync_endpoint=262.450s total=272.284s text_len=1974
-INFO:     127.0.0.1:40590 - "POST /speak HTTP/1.1" 200 OK
-[TIMING] frames=663 restored=332 wav+mel=0.057s wav2lip_fwd_total=1.964s restore_total=25.718s videowriter_total=0.757s frame_loop_wallclock=28.977s ffmpeg_mux=0.000s generate_total=29.034s
-[TIMING] /speak tts=1.025s lipsync_endpoint=29.034s total=30.059s text_len=224
-INFO:     127.0.0.1:52646 - "POST /speak HTTP/1.1" 200 OK
-INFO:     127.0.0.1:34754 - "GET / HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:34768 - "GET /health HTTP/1.1" 200 OK
-[TIMING] frames=757 restored=379 wav+mel=0.039s wav2lip_fwd_total=3.915s restore_total=29.571s videowriter_total=0.796s frame_loop_wallclock=34.839s ffmpeg_mux=0.000s generate_total=34.878s
-[TIMING] /speak tts=1.119s lipsync_endpoint=34.882s total=36.001s text_len=250
-INFO:     127.0.0.1:47864 - "POST /speak HTTP/1.1" 200 OK
-INFO:     127.0.0.1:47864 - "GET /avatar-video/5ca60740fa0c4dfb93c6d707971e1db2.mp4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50900 - "GET /health HTTP/1.1" 200 OK
+[TIMING] frames=663 restored=332 wav+mel=0.558s wav2lip_fwd_total=4.847s restore_total=26.054s videowriter_total=0.645s frame_loop_wallclock=32.073s ffmpeg_mux=0.000s generate_total=32.632s
+[TIMING] /speak tts=1.163s lipsync_endpoint=32.644s total=33.808s text_len=224
+INFO:     127.0.0.1:44880 - "POST /speak HTTP/1.1" 200 OK
+[TIMING] frames=664 restored=332 wav+mel=0.048s wav2lip_fwd_total=1.942s restore_total=24.614s videowriter_total=0.699s frame_loop_wallclock=27.746s ffmpeg_mux=0.000s generate_total=27.794s
+[TIMING] /speak tts=1.162s lipsync_endpoint=27.796s total=28.959s text_len=224
+INFO:     127.0.0.1:37206 - "POST /speak HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48214 - "POST /transcribe HTTP/1.1" 200 OK
+[TIMING] frames=716 restored=358 wav+mel=0.041s wav2lip_fwd_total=3.185s restore_total=27.969s videowriter_total=0.805s frame_loop_wallclock=32.490s ffmpeg_mux=0.000s generate_total=32.531s
+[TIMING] /speak tts=1.105s lipsync_endpoint=32.537s total=33.642s text_len=238
+INFO:     127.0.0.1:48214 - "POST /speak HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48214 - "GET /avatar-video/42cb7c00c5514cb994a5441d346617c3.mp4 HTTP/1.1" 200 OK

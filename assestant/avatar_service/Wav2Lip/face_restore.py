@@ -111,7 +111,13 @@ def init(checkpoint_path: str, reference_frame) -> None:
     _mask_background = (1 - inv_soft_mask)[:, :, None].astype(np.float32)
 
     # The detector/helper's bookkeeping is only needed for that one setup call.
+    # GFPGANer's constructor also unconditionally loads a face-parsing net
+    # (facexlib's ParseNet, ~85MB) regardless of use_parse -- that flag only
+    # skips it at runtime (see facexlib's face_restoration_helper.py line
+    # ~103 vs ~302). Since restore() below never calls back into the helper,
+    # this is pure dead weight sitting in VRAM for the life of the process.
     del helper.face_det
+    del helper.face_parse
     if DEVICE == "cuda":
         torch.cuda.empty_cache()
 

@@ -1,3 +1,15 @@
+import os
+
+# Must be set before `import torch` initializes the CUDA allocator. This GPU
+# runs right at the edge of its 8GB (avatar models ~4.7-5.2GB resident +
+# Ollama ~2GB when warm leave only a few hundred MB slack -- confirmed via a
+# live CUDA OOM: "58.45 MiB is reserved by PyTorch but unallocated"), so
+# fragmentation alone can tip an allocation over even when enough memory is
+# technically free in aggregate. expandable_segments lets the caching
+# allocator grow/shrink segments instead of hunting for a contiguous
+# fixed-size block -- PyTorch's own OOM message suggests this exact setting.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import re
 import sys
 import tempfile
@@ -7,6 +19,7 @@ import uuid
 import wave
 from pathlib import Path
 
+import requests
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -37,6 +50,10 @@ VOICES_DIR = BASE_DIR / "piper_voices"
 PIPER_VOICE_EN_PATH = VOICES_DIR / "en_US-hfc_male-medium.onnx"  # lessac turned out to sound female
 PIPER_VOICE_AR_PATH = VOICES_DIR / "ar_JO-kareem-medium.onnx"
 OUTPUT_DIR = BASE_DIR / "outputs"
+
+# Ollama's own compose port, exposed on the host (see chatbot/docker-compose.yml).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 sys.path.insert(0, str(WAV2LIP_DIR))
@@ -114,6 +131,28 @@ class SpeakRequest(BaseModel):
     text: str
 
 
+def _unload_ollama() -> None:
+    """Best-effort: free Ollama's VRAM before the GPU-heavy Wav2Lip/GFPGAN
+    step below. By the time /speak runs, Ollama has already produced the
+    chat answer this speech is for and has no more work to do this turn --
+    from here its only effect is competing for the same ~8GB the avatar
+    models need (this is what the CUDA OOM in PYTORCH_CUDA_ALLOC_CONF's
+    comment above traced back to: avatar models + a still-warm Ollama left
+    only ~100MB free). keep_alive=0 on a prompt-less generate call is
+    Ollama's documented way to unload immediately rather than waiting out
+    its normal keep-alive window. A small cold-reload cost on Ollama's
+    *next* chat request is a fair trade for not crashing this one.
+    """
+    try:
+        requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={"model": OLLAMA_MODEL, "keep_alive": 0},
+            timeout=5,
+        )
+    except requests.RequestException:
+        pass  # Ollama being unreachable/slow should never block avatar generation.
+
+
 def synthesize_speech(text: str, wav_path: Path, voice: PiperVoice) -> None:
     with wave.open(str(wav_path), "wb") as wav_file:
         voice.synthesize_wav(text, wav_file)
@@ -142,14 +181,43 @@ def speak(req: SpeakRequest):
         _t0 = time.perf_counter()
         synthesize_speech(text, wav_path, voice)
         _t_tts = time.perf_counter()
-        generate_lipsync_video(wav_path, video_path)
+
+        # Ollama has already done its job for this turn (producing the chat
+        # answer we're now speaking) -- give its VRAM back before the
+        # GPU-heavy step below needs it. See _unload_ollama()'s docstring.
+        _unload_ollama()
+
+        try:
+            generate_lipsync_video(wav_path, video_path)
+        except torch.cuda.OutOfMemoryError:
+            # Fallback in case the unload above didn't free enough in time
+            # (e.g. Ollama was mid-generation for a *different* request).
+            # empty_cache() only frees blocks *this* process was holding but
+            # not using, so a brief wait first gives Ollama's unload a moment
+            # to actually land before retrying into the same contention.
+            print("[WARN] /speak: CUDA OOM, retrying once in 2s after cache clear", flush=True)
+            torch.cuda.empty_cache()
+            time.sleep(2)
+            generate_lipsync_video(wav_path, video_path)
+
         _t_video = time.perf_counter()
         print(
             f"[TIMING] /speak tts={_t_tts - _t0:.3f}s lipsync_endpoint={_t_video - _t_tts:.3f}s "
             f"total={_t_video - _t0:.3f}s text_len={len(text)}",
             flush=True,
         )
-    except (RuntimeError, ValueError) as exc:
+    except Exception as exc:
+        # Broadened from (RuntimeError, ValueError): a failure here was
+        # returning a bare 500 with no detail in the log (the except clause
+        # only matched our own raised errors, so anything else -- e.g. a
+        # Piper phonemizer error on unexpected characters -- vanished
+        # silently). Log the actual text that triggered it so this is
+        # diagnosable next time instead of just "500 Internal Server Error".
+        print(
+            f"[ERROR] /speak failed: {type(exc).__name__}: {exc} "
+            f"text_len={len(text)} text={text[:300]!r}",
+            flush=True,
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         if wav_path.exists():
