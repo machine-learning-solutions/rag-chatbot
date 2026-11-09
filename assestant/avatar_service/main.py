@@ -281,10 +281,20 @@ def speak_stream(req: SpeakRequest):
     Lets the client start playback after the first segment (a few seconds)
     rather than after the full render, which for a long answer can take
     minutes (render time tracks speech length almost 1:1 -- see
-    resident_inference.py). Each event: {chunk_index, video_url, is_last}.
+    resident_inference.py).
+
+    Event sequence:
+      1. After TTS: {audio_url, chunk_seconds} -- full wav for continuous
+         master-audio playback on the client (video chunks stay muted).
+      2. Per segment: {chunk_index, chunk_start, video_url, is_last}.
+
     On failure mid-stream, emits {"error": "..."} and ends -- the client
     plays whatever chunks already arrived and stops there, rather than this
     endpoint trying to patch a partial failure back together.
+
+    The wav is intentionally NOT deleted when the stream ends: the client
+    may still be playing it after the last video chunk arrives. The output
+    sweeper removes it after OUTPUT_MAX_AGE_SECONDS.
     """
     text = req.text.strip()
     if not text:
@@ -304,6 +314,15 @@ def speak_stream(req: SpeakRequest):
             # give its VRAM back before the GPU-heavy step needs it.
             _unload_ollama()
 
+            # Full TTS wav first so the client can play one unbroken audio
+            # track while lip-sync video chunks swap underneath.
+            yield _sse(
+                {
+                    "audio_url": f"/avatar-video/{job_id}.wav",
+                    "chunk_seconds": STREAM_CHUNK_SECONDS,
+                }
+            )
+
             def out_path_fn(i):
                 return str(OUTPUT_DIR / f"{job_id}_{i}.mp4")
 
@@ -314,6 +333,7 @@ def speak_stream(req: SpeakRequest):
                 yield _sse(
                     {
                         "chunk_index": seg_index,
+                        "chunk_start": seg_index * STREAM_CHUNK_SECONDS,
                         "video_url": f"/avatar-video/{filename}",
                         "is_last": is_last,
                     }
@@ -332,9 +352,6 @@ def speak_stream(req: SpeakRequest):
                 flush=True,
             )
             yield _sse({"error": str(exc)})
-        finally:
-            if wav_path.exists():
-                wav_path.unlink()
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
@@ -344,7 +361,8 @@ def get_video(filename: str):
     path = OUTPUT_DIR / filename
     if not path.exists() or ".." in filename:
         raise HTTPException(status_code=404, detail="not found")
-    return FileResponse(path, media_type="video/mp4")
+    media_type = "audio/wav" if path.suffix.lower() == ".wav" else "video/mp4"
+    return FileResponse(path, media_type=media_type)
 
 
 @app.post("/transcribe")
