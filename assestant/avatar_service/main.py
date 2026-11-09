@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
 from piper import PiperVoice
+from piper.config import SynthesisConfig
 
 # cuDNN benchmark mode autotunes and caches the fastest conv algorithm for the
 # (always-identical, per TIMING logs the dominant cost by far) GFPGAN 512x512
@@ -64,6 +65,10 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # just the first few seconds of it. ~4s keeps time-to-first-chunk low while
 # not fragmenting short answers (which still render as a single chunk).
 STREAM_CHUNK_SECONDS = float(os.environ.get("AVATAR_STREAM_CHUNK_SECONDS", "4.0"))
+
+# Piper length_scale: lower = faster speech. Arabic (kareem) defaults to 1.0
+# and reads slow for portfolio answers; English stays at the model default.
+AR_LENGTH_SCALE = float(os.environ.get("PIPER_AR_LENGTH_SCALE", "0.75"))
 
 sys.path.insert(0, str(WAV2LIP_DIR))
 import resident_inference  # noqa: E402  (Wav2Lip's own flat-module imports need WAV2LIP_DIR on sys.path first)
@@ -198,8 +203,11 @@ def _unload_ollama() -> None:
 
 
 def synthesize_speech(text: str, wav_path: Path, voice: PiperVoice) -> None:
+    syn_config = None
+    if voice is PIPER_VOICE_AR:
+        syn_config = SynthesisConfig(length_scale=AR_LENGTH_SCALE)
     with wave.open(str(wav_path), "wb") as wav_file:
-        voice.synthesize_wav(text, wav_file)
+        voice.synthesize_wav(text, wav_file, syn_config=syn_config)
     if not wav_path.exists():
         raise RuntimeError("Piper TTS failed: no output file written")
 
