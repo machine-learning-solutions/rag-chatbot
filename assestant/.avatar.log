@@ -54,3 +54,31 @@ INFO:     127.0.0.1:53048 - "GET /avatar-video/dc3da3860ab541d1838f5ede946b8f42_
 [TIMING] segment=3/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.151s restore_total=3.848s videowriter_total=0.115s segment_wallclock=4.230s since_request_start=17.176s
 [TIMING] segment=4/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.162s restore_total=3.934s videowriter_total=0.126s segment_wallclock=4.344s since_request_start=21.521s
 [TIMING] segment=5/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.163s restore_total=3.899s videowriter_total=0.118s segment_wallclock=4.294s since_request_start=25.816s
+[TIMING] segment=6/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.895s videowriter_total=0.125s segment_wallclock=4.306s since_request_start=30.123s
+[TIMING] segment=7/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.934s videowriter_total=0.119s segment_wallclock=4.335s since_request_start=34.460s
+[TIMING] segment=8/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.906s videowriter_total=0.132s segment_wallclock=4.317s since_request_start=38.778s
+[TIMING] segment=9/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.160s restore_total=3.939s videowriter_total=0.129s segment_wallclock=4.341s since_request_start=43.121s
+[TIMING] segment=10/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.158s restore_total=3.909s videowriter_total=0.120s segment_wallclock=4.306s since_request_start=47.428s
+[TIMING] segment=11/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.158s restore_total=3.885s videowriter_total=0.129s segment_wallclock=4.293s since_request_start=51.723s
+[TIMING] segment=12/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.942s videowriter_total=0.137s segment_wallclock=4.354s since_request_start=56.078s
+[TIMING] segment=13/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.902s videowriter_total=0.122s segment_wallclock=4.306s since_request_start=60.386s
+[TIMING] segment=14/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.935s videowriter_total=0.126s segment_wallclock=4.346s since_request_start=64.733s
+[CLEANUP] removed 8 stale file(s) from /home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/assestant/avatar_service/outputs
+[TIMING] segment=15/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.161s restore_total=3.923s videowriter_total=0.120s segment_wallclock=4.327s since_request_start=69.061s
+[TIMING] segment=16/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.158s restore_total=3.906s videowriter_total=0.123s segment_wallclock=4.311s since_request_start=73.374s
+[TIMING] segment=17/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.162s restore_total=3.917s videowriter_total=0.131s segment_wallclock=4.324s since_request_start=77.700s
+[TIMING] segment=18/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.163s restore_total=3.931s videowriter_total=0.139s segment_wallclock=4.358s since_request_start=82.060s
+[TIMING] segment=19/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.159s restore_total=3.925s videowriter_total=0.141s segment_wallclock=4.345s since_request_start=86.406s
+[TIMING] segment=20/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.158s restore_total=3.933s videowriter_total=0.134s segment_wallclock=4.342s since_request_start=90.749s
+[TIMING] segment=21/22 frames=100 restored=50 wav+mel=0.110s wav2lip_fwd_total=0.158s restore_total=3.931s videowriter_total=0.135s segment_wallclock=4.342s since_request_start=95.093s
+[TIMING] segment=22/22 frames=75 restored=38 wav+mel=0.110s wav2lip_fwd_total=2.079s restore_total=2.917s videowriter_total=0.105s segment_wallclock=5.207s since_request_start=100.301s
+[TIMING] /speak/stream tts=2.043s lipsync_endpoint=100.306s total=102.348s text_len=1352
+INFO:     127.0.0.1:49502 - "POST /speak/stream HTTP/1.1" 200 OK
+[TIMING] segment=0/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.193s restore_total=4.001s videowriter_total=0.113s segment_wallclock=4.512s since_request_start=4.646s
+INFO:     127.0.0.1:49512 - "GET /avatar-video/6beb28e63e184e4caa24b909bb67a16d_0.mp4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49512 - "GET /avatar-video/6beb28e63e184e4caa24b909bb67a16d_0.mp4 HTTP/1.1" 200 OK
+[TIMING] segment=1/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.162s restore_total=3.928s videowriter_total=0.117s segment_wallclock=4.366s since_request_start=9.014s
+[TIMING] segment=2/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.160s restore_total=3.965s videowriter_total=0.130s segment_wallclock=4.375s since_request_start=13.391s
+[TIMING] segment=3/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.162s restore_total=3.896s videowriter_total=0.133s segment_wallclock=4.315s since_request_start=17.707s
+[TIMING] segment=4/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.162s restore_total=3.912s videowriter_total=0.130s segment_wallclock=4.326s since_request_start=22.035s
+[TIMING] segment=5/22 frames=100 restored=50 wav+mel=0.122s wav2lip_fwd_total=0.161s restore_total=3.870s videowriter_total=0.132s segment_wallclock=4.285s since_request_start=26.322s
