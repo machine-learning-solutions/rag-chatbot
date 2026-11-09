@@ -22,7 +22,7 @@ from pathlib import Path
 
 import requests
 import torch
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
@@ -85,14 +85,32 @@ def detect_voice(text: str) -> PiperVoice:
 
 app = FastAPI()
 
-# "large-v3" multilingual: noticeably more accurate than "medium" on both
-# English and Arabic, especially for accents/noisy audio. Running on GPU
-# (float16) — confirmed enough free VRAM alongside Ollama/LFM3 + Wav2Lip.
-# Loaded once at startup so per-request latency is just inference time.
+# Dual Whisper: English uses stock large-v3-turbo (faster/lighter than
+# large-v3); Arabic uses a multi-dialect fine-tune shipped as CTranslate2
+# int8 (dev-ahmedhany/...-arabic-ft-ct2-int8) so we keep Arabic accuracy
+# without the VRAM cost of full large-v3. Both together stay near the old
+# single large-v3 footprint on this 8GB GPU.
+WHISPER_EN_MODEL_ID = os.environ.get("WHISPER_EN_MODEL", "large-v3-turbo")
+WHISPER_AR_MODEL_ID = os.environ.get(
+    "WHISPER_AR_MODEL",
+    "dev-ahmedhany/whisper-large-v3-turbo-arabic-ft-ct2-int8",
+)
+
+
+def _load_whisper(model_id: str, compute_type: str) -> WhisperModel:
+    try:
+        return WhisperModel(model_id, device="cuda", compute_type=compute_type)
+    except Exception as exc:
+        print(f"[WARN] Whisper GPU load failed ({model_id}): {exc}; falling back to CPU", flush=True)
+        return WhisperModel(model_id, device="cpu", compute_type="int8")
+
+
+WHISPER_MODEL_EN = _load_whisper(WHISPER_EN_MODEL_ID, "float16")
 try:
-    WHISPER_MODEL = WhisperModel("large-v3", device="cuda", compute_type="float16")
-except Exception:
-    WHISPER_MODEL = WhisperModel("medium", device="cpu", compute_type="int8")
+    WHISPER_MODEL_AR = _load_whisper(WHISPER_AR_MODEL_ID, "int8_float16")
+except Exception as exc:
+    print(f"[WARN] Arabic Whisper unavailable ({exc}); Arabic falls back to EN model", flush=True)
+    WHISPER_MODEL_AR = WHISPER_MODEL_EN
 
 # Piper voices loaded once (CPU) instead of spawning `python -m piper` per request.
 PIPER_VOICE_EN = PiperVoice.load(str(PIPER_VOICE_EN_PATH))
@@ -374,19 +392,29 @@ def get_video(filename: str):
 
 
 @app.post("/transcribe")
-async def transcribe(audio: UploadFile = File(...)):
+async def transcribe(
+    audio: UploadFile = File(...),
+    language: str = Form("en"),
+):
     suffix = Path(audio.filename or "").suffix or ".webm"
     data = await audio.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty audio upload")
+
+    lang = (language or "en").strip().lower()
+    use_arabic = lang.startswith("ar")
+    model = WHISPER_MODEL_AR if use_arabic else WHISPER_MODEL_EN
+    forced_language = "ar" if use_arabic else "en"
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         tmp.write(data)
         tmp_path = Path(tmp.name)
 
     try:
-        segments, info = WHISPER_MODEL.transcribe(
+        segments, info = model.transcribe(
             str(tmp_path),
+            language=forced_language,
+            task="transcribe",
             beam_size=5,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
@@ -398,7 +426,7 @@ async def transcribe(audio: UploadFile = File(...)):
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    return {"text": text, "language": info.language}
+    return {"text": text, "language": info.language or forced_language}
 
 
 @app.get("/health")
@@ -409,4 +437,6 @@ def health():
         "reference_face_exists": REFERENCE_FACE.exists(),
         "piper_voice_en_exists": PIPER_VOICE_EN_PATH.exists(),
         "piper_voice_ar_exists": PIPER_VOICE_AR_PATH.exists(),
+        "whisper_en_model": WHISPER_EN_MODEL_ID,
+        "whisper_ar_model": WHISPER_AR_MODEL_ID,
     }

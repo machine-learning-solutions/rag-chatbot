@@ -169,6 +169,8 @@ app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
       new Blob([req.file.buffer], { type: req.file.mimetype || "application/octet-stream" }),
       req.file.originalname || "audio.webm",
     );
+    const language = req.body?.language === "ar" ? "ar" : "en";
+    form.append("language", language);
 
     const avatarRes = await fetch(`${AVATAR_URL}/transcribe`, {
       method: "POST",
