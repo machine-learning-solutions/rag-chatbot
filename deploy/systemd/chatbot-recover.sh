@@ -61,7 +61,10 @@ log() { logger -t chatbot-recover "$*"; }
     fi
     if docker compose up -d --remove-orphans 2>"$ERR"; then
       log "Compose up succeeded"
-    elif grep -qE "already in use|Conflict" "$ERR"; then
+    elif grep -qE "already in use|Conflict|network .+ not found|failed to set up container networking" "$ERR"; then
+      # After reboot Docker often keeps container configs pointing at a
+      # network ID that no longer exists -- only a full down/up recreates it.
+      log "Stale compose state; reconciling"
       reconcile_and_up
     else
       cat "$ERR" >&2
