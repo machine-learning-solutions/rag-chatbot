@@ -101,6 +101,44 @@ app.post("/api/speak", async (req, res) => {
   }
 });
 
+app.post("/api/speak/stream", async (req, res) => {
+  const { text } = req.body;
+
+  if (!text || !text.trim()) {
+    res.status(400).json({ error: "text is required" });
+    return;
+  }
+
+  try {
+    const avatarRes = await fetch(`${AVATAR_URL}/speak/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!avatarRes.ok || !avatarRes.body) {
+      const detail = await avatarRes.text().catch(() => "");
+      console.error(`Avatar service /speak/stream failed (${avatarRes.status}):`, detail);
+      res.status(502).json({ error: "Avatar service failed", detail });
+      return;
+    }
+
+    // Straight byte passthrough of the upstream SSE stream -- same shape as
+    // the /avatar-video proxy below, just for an event-stream body instead
+    // of a video file. No reframing needed: the client parses SSE directly
+    // against this same-origin response.
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    for await (const chunk of avatarRes.body) {
+      res.write(chunk);
+    }
+    res.end();
+  } catch (err) {
+    res.status(502).json({ error: "Avatar service unreachable", detail: err.message });
+  }
+});
+
 app.get("/avatar-video/:filename", async (req, res) => {
   try {
     const avatarRes = await fetch(`${AVATAR_URL}/avatar-video/${req.params.filename}`);

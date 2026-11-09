@@ -10,6 +10,7 @@ import os
 # fixed-size block -- PyTorch's own OOM message suggests this exact setting.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+import json
 import re
 import sys
 import tempfile
@@ -22,7 +23,7 @@ from pathlib import Path
 import requests
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
 from piper import PiperVoice
@@ -55,6 +56,14 @@ OUTPUT_DIR = BASE_DIR / "outputs"
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:e2b")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# /speak/stream segment length. Render time scales ~1:1 with speech length
+# (GFPGAN restoration is the fixed-cost bottleneck, already near its measured
+# hardware floor), so for a long answer there's no way to make the full clip
+# render fast -- but the client doesn't need the full clip to start playing,
+# just the first few seconds of it. ~4s keeps time-to-first-chunk low while
+# not fragmenting short answers (which still render as a single chunk).
+STREAM_CHUNK_SECONDS = float(os.environ.get("AVATAR_STREAM_CHUNK_SECONDS", "4.0"))
 
 sys.path.insert(0, str(WAV2LIP_DIR))
 import resident_inference  # noqa: E402  (Wav2Lip's own flat-module imports need WAV2LIP_DIR on sys.path first)
@@ -125,6 +134,41 @@ def _gpu_keepalive():
 
 
 threading.Thread(target=_gpu_keepalive, daemon=True).start()
+
+# --- Output cleanup -------------------------------------------------------
+# Nothing was ever deleting generated files from OUTPUT_DIR (confirmed: 420
+# files / 200MB had accumulated since Nov 8, well before chunked streaming
+# existed). /speak/stream makes this acutely worse -- a single long answer
+# now produces dozens of small .mp4s instead of one file. Clients fetch each
+# chunk once, shortly after it's generated, so anything older than a
+# generous safety margin (longest observed render for one answer: ~4.5min)
+# is safe to remove. Sweeps immediately at startup (clearing any backlog)
+# and on an interval after that.
+OUTPUT_MAX_AGE_SECONDS = 20 * 60
+OUTPUT_SWEEP_INTERVAL_SECONDS = 5 * 60
+
+
+def _cleanup_old_outputs():
+    now = time.time()
+    removed = 0
+    for path in OUTPUT_DIR.iterdir():
+        try:
+            if path.is_file() and (now - path.stat().st_mtime) > OUTPUT_MAX_AGE_SECONDS:
+                path.unlink()
+                removed += 1
+        except OSError:
+            pass  # file removed/replaced concurrently -- fine, skip it
+    if removed:
+        print(f"[CLEANUP] removed {removed} stale file(s) from {OUTPUT_DIR}", flush=True)
+
+
+def _cleanup_loop():
+    while True:
+        _cleanup_old_outputs()
+        time.sleep(OUTPUT_SWEEP_INTERVAL_SECONDS)
+
+
+threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
 class SpeakRequest(BaseModel):
@@ -224,6 +268,75 @@ def speak(req: SpeakRequest):
             wav_path.unlink()
 
     return {"video_url": f"/avatar-video/{job_id}.mp4"}
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data)}\n\n"
+
+
+@app.post("/speak/stream")
+def speak_stream(req: SpeakRequest):
+    """Like /speak, but emits each ~STREAM_CHUNK_SECONDS segment as an SSE
+    event as soon as it's ready, instead of waiting for the whole clip.
+    Lets the client start playback after the first segment (a few seconds)
+    rather than after the full render, which for a long answer can take
+    minutes (render time tracks speech length almost 1:1 -- see
+    resident_inference.py). Each event: {chunk_index, video_url, is_last}.
+    On failure mid-stream, emits {"error": "..."} and ends -- the client
+    plays whatever chunks already arrived and stops there, rather than this
+    endpoint trying to patch a partial failure back together.
+    """
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text must not be empty")
+
+    job_id = uuid.uuid4().hex
+    wav_path = OUTPUT_DIR / f"{job_id}.wav"
+    voice = detect_voice(text)
+
+    def event_gen():
+        try:
+            _t0 = time.perf_counter()
+            synthesize_speech(text, wav_path, voice)
+            _t_tts = time.perf_counter()
+
+            # Same reasoning as /speak: Ollama's done its job for this turn,
+            # give its VRAM back before the GPU-heavy step needs it.
+            _unload_ollama()
+
+            def out_path_fn(i):
+                return str(OUTPUT_DIR / f"{job_id}_{i}.mp4")
+
+            for seg_path, seg_index, is_last in resident_inference.generate_chunks(
+                str(wav_path), out_path_fn, chunk_seconds=STREAM_CHUNK_SECONDS
+            ):
+                filename = Path(seg_path).name
+                yield _sse(
+                    {
+                        "chunk_index": seg_index,
+                        "video_url": f"/avatar-video/{filename}",
+                        "is_last": is_last,
+                    }
+                )
+
+            _t_video = time.perf_counter()
+            print(
+                f"[TIMING] /speak/stream tts={_t_tts - _t0:.3f}s lipsync_endpoint={_t_video - _t_tts:.3f}s "
+                f"total={_t_video - _t0:.3f}s text_len={len(text)}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                f"[ERROR] /speak/stream failed: {type(exc).__name__}: {exc} "
+                f"text_len={len(text)} text={text[:300]!r}",
+                flush=True,
+            )
+            yield _sse({"error": str(exc)})
+        finally:
+            if wav_path.exists():
+                wav_path.unlink()
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
 @app.get("/avatar-video/{filename}")
