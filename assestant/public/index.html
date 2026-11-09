@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jehad Abu Awwad Assistant</title>
+<style>
+  :root {
+    --bg-0: #04040c;
+    --bg-1: #0a0a1a;
+    --panel: rgba(18, 20, 36, 0.55);
+    --panel-border: rgba(130, 140, 255, 0.18);
+    --text: #eef0ff;
+    --muted: #8a90b8;
+    --accent: #7c6cff;
+    --accent-2: #39d5ff;
+    --bubble-user: linear-gradient(135deg, #3a3fae, #6a4fd6);
+    --bubble-bot: rgba(255, 255, 255, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse 120% 80% at 50% -10%, #1a1440 0%, var(--bg-1) 45%, var(--bg-0) 100%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ---- space background: nebula glow blobs + generated starfield ---- */
+  #nebula {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  #nebula::before, #nebula::after {
+    content: "";
+    position: absolute;
+    width: 60vmax;
+    height: 60vmax;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.35;
+    animation: drift 36s ease-in-out infinite alternate;
+  }
+  #nebula::before {
+    top: -20%;
+    left: -10%;
+    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  }
+  #nebula::after {
+    bottom: -25%;
+    right: -15%;
+    background: radial-gradient(circle, var(--accent-2) 0%, transparent 70%);
+    animation-delay: -10s;
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(6%, 4%) scale(1.08); }
+  }
+  .stars {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background: transparent;
+    pointer-events: none;
+  }
+  .stars > div {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1px; height: 1px;
+    background: transparent;
+    border-radius: 50%;
+    animation: twinkle 4s ease-in-out infinite;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 1; }
+  }
+
+  #stage {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    padding: 18px 16px 16px;
+    animation: stageFadeIn 1s ease-out both;
+  }
+  @keyframes stageFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 10px;
+    animation: dropIn 0.7s ease-out both;
+    animation-delay: 0.1s;
+  }
+  header .title {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header .sub { font-weight: 400; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  #avatarWrap {
+    position: relative;
+    width: clamp(90px, 28vh, 230px);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    animation: avatarIntro 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: 0.25s;
+  }
+  @keyframes avatarIntro {
+    0% { opacity: 0; transform: scale(0.4); filter: blur(8px); }
+    60% { opacity: 1; filter: blur(0); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  #avatarGlow {
+    position: absolute;
+    inset: -14px;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--accent), var(--accent-2), var(--accent));
+    filter: blur(18px);
+    opacity: 0.55;
+    animation: spin 8s linear infinite, pulseGlow 2.4s ease-in-out infinite;
+  }
+  #avatarWrap.speaking #avatarGlow {
+    opacity: 0.9;
+    animation: spin 2.5s linear infinite, pulseGlow 0.9s ease-in-out infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulseGlow {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+  }
+  #avatarFrame {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #000;
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  }
+  #avatarFrame img, #avatarFrame video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 20%;
+    display: block;
+  }
+  #avatarVideo { display: none; }
+  #avatarStatus {
+    font-size: 12px;
+    color: var(--muted);
+    min-height: 16px;
+    text-align: center;
+  }
+  #avatarStatus.active { color: var(--accent-2); }
+
+  #chatPanel {
+    position: relative;
+    flex: 1;
+    width: min(680px, 100%);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+    animation: panelRise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation-delay: 0.5s;
+  }
+  @keyframes panelRise {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .msg {
+    max-width: 75%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    font-size: 14px;
+    animation: msgIn 0.25s ease-out both;
+  }
+  @keyframes msgIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg.user { align-self: flex-end; background: var(--bubble-user); box-shadow: 0 4px 16px rgba(124, 108, 255, 0.25); }
+  .msg.assistant { align-self: flex-start; background: var(--bubble-bot); border: 1px solid rgba(255,255,255,0.06); }
+  .msg.assistant.thinking { color: var(--muted); font-style: italic; }
+
+  #micStatus {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0 18px 6px;
+    min-height: 14px;
+  }
+  #micStatus.error { color: #ff8585; }
+
+  #inputBar {
+    display: flex;
+    gap: 8px;
+    padding: 14px;
+    border-top: 1px solid var(--panel-border);
+  }
+  #inputBar textarea {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--text);
+    padding: 11px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    height: 44px;
+  }
+  #inputBar textarea:focus { outline: none; border-color: var(--accent); }
+  #inputBar textarea::placeholder {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #inputBar button {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: none;
+    color: white;
+    padding: 0 20px;
+    border-radius: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  #inputBar button:hover:not(:disabled) { transform: translateY(-1px); }
+  #inputBar button:disabled { opacity: 0.45; cursor: default; }
+  #micBtn {
+    background: rgba(255, 255, 255, 0.08);
+    min-width: 44px;
+    padding: 0;
+  }
+  #micBtn.recording {
+    background: #e0504a;
+    animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(224, 80, 74, 0.6); }
+    50% { box-shadow: 0 0 0 10px rgba(224, 80, 74, 0); }
+  }
+
+  @media (max-width: 520px) {
+    #stage { padding: 12px 10px 10px; }
+    header { margin-bottom: 6px; }
+    #avatarWrap { width: clamp(80px, 22vh, 170px); margin-bottom: 6px; }
+    #messages { padding: 12px; }
+    #inputBar { padding: 10px; }
+  }
+
+  @media (max-height: 700px) {
+    #avatarWrap { width: clamp(70px, 18vh, 140px); margin-bottom: 4px; }
+    header { margin-bottom: 4px; }
+    header .sub { display: none; }
+  }
+</style>
+</head>
+<body>
+  <div id="nebula"></div>
+  <div class="stars" id="starsSmall"></div>
+  <div class="stars" id="starsBig"></div>
+
+  <div id="stage">
+    <header>
+      <div class="title">JEHAD ABU AWWAD ASSISTANT</div>
+      <div class="sub">Personal AI Assistant</div>
+    </header>
+
+    <div id="avatarWrap">
+      <div id="avatarGlow"></div>
+      <div id="avatarFrame">
+        <img id="avatarIdle" src="/avatar/reference.png" alt="Avatar" />
+        <video id="avatarVideo" playsinline></video>
+      </div>
+      <div id="avatarStatus"></div>
+    </div>
+
+    <div id="chatPanel">
+      <div id="messages"></div>
+      <div id="micStatus"></div>
+      <div id="inputBar">
+        <button id="micBtn" type="button" title="Click to start/stop voice input">🎤</button>
+        <textarea id="input" dir="auto" placeholder="How can I help you today? / كيف يمكنني مساعدتك اليوم؟"></textarea>
+        <button id="send">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function generateStars(containerId, count, sizePx, durationRange) {
+      const container = document.getElementById(containerId);
+      const w = window.innerWidth, h = window.innerHeight;
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < count; i++) {
+        const star = document.createElement("div");
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        const size = sizePx[0] + Math.random() * (sizePx[1] - sizePx[0]);
+        const dur = durationRange[0] + Math.random() * (durationRange[1] - durationRange[0]);
+        star.style.left = x + "px";
+        star.style.top = y + "px";
+        star.style.width = size + "px";
+        star.style.height = size + "px";
+        star.style.background = "white";
+        star.style.borderRadius = "50%";
+        star.style.animationDuration = dur + "s";
+        star.style.animationDelay = (Math.random() * dur) + "s";
+        frag.appendChild(star);
+      }
+      container.appendChild(frag);
+    })("starsSmall", 90, [1, 1.6], [2.5, 5]);
+
+    (function generateStars(containerId, count, sizePx, durationRange) {
+      const container = document.getElementById(containerId);
+      const w = window.innerWidth, h = window.innerHeight;
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < count; i++) {
+        const star = document.createElement("div");
+        const x = Math.random() * w;
+        const y = Math.random() * h;
+        const size = sizePx[0] + Math.random() * (sizePx[1] - sizePx[0]);
+        const dur = durationRange[0] + Math.random() * (durationRange[1] - durationRange[0]);
+        star.style.left = x + "px";
+        star.style.top = y + "px";
+        star.style.width = size + "px";
+        star.style.height = size + "px";
+        star.style.background = "white";
+        star.style.borderRadius = "50%";
+        star.style.boxShadow = "0 0 4px 1px rgba(255,255,255,0.8)";
+        star.style.animationDuration = dur + "s";
+        star.style.animationDelay = (Math.random() * dur) + "s";
+        frag.appendChild(star);
+      }
+      container.appendChild(frag);
+    })("starsBig", 25, [2, 3], [3, 6]);
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
