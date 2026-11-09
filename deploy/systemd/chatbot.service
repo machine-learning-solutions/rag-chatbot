@@ -8,11 +8,11 @@ StartLimitIntervalSec=0
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot
+WorkingDirectory=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot
 ExecStartPre=/bin/sleep 5
-ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/chatbot-start.sh
+ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/chatbot-start.sh
 ExecStop=/usr/bin/docker compose down
-ExecReload=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/chatbot-start.sh
+ExecReload=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/chatbot-start.sh
 User=jadaboawwad
 Group=jadaboawwad
 StandardOutput=journal

@@ -7,7 +7,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStartPre=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/wait-for-gateway.sh
+ExecStartPre=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/wait-for-gateway.sh
 ExecStart=/usr/local/bin/ngrok start chatbot
 User=jadaboawwad
 Group=jadaboawwad

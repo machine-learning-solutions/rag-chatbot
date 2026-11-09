@@ -2,7 +2,7 @@
 # Periodic health check — fixes dead ngrok tunnels that systemd still marks active.
 set -euo pipefail
 
-RECOVER="/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/chatbot-recover.sh"
+RECOVER="/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/chatbot-recover.sh"
 
 backend_ok() {
   curl -sf -o /dev/null --max-time 4 http://127.0.0.1:8000/docs

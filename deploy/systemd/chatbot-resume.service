@@ -5,7 +5,7 @@ DefaultDependencies=no
 
 [Service]
 Type=oneshot
-ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/chatbot-recover.sh
+ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/chatbot-recover.sh
 User=jadaboawwad
 Group=jadaboawwad
 

@@ -6,8 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-WorkingDirectory=%h/Files/Software/Repositories/Applications/Chatbot
-ExecStart=%h/Files/Software/Repositories/Applications/Chatbot/deploy/monitor/chatbot-client-alert.sh
+WorkingDirectory=%h/Files/Software/Repositories/Applications/Portfolio/chatbot
+ExecStart=%h/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/monitor/chatbot-client-alert.sh
 Restart=always
 RestartSec=5
 

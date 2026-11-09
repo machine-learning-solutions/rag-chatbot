@@ -4,6 +4,6 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot/deploy/systemd/chatbot-watchdog.sh
+ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/chatbot-watchdog.sh
 User=jadaboawwad
 Group=jadaboawwad

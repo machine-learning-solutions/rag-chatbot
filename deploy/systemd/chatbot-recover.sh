@@ -2,7 +2,7 @@
 # Full stack recovery after suspend, network drop, or stale ngrok tunnel.
 set -euo pipefail
 
-ROOT="/home/jadaboawwad/Files/Software/Repositories/Applications/Chatbot"
+ROOT="/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot"
 ERR="/tmp/chatbot-compose.err"
 LOCK_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/chatbot"
 LOCK_FILE="$LOCK_DIR/recover.lock"
