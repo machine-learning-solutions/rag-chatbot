@@ -24,6 +24,7 @@ import requests
 import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 from faster_whisper import WhisperModel
 from piper import PiperVoice
@@ -393,13 +394,26 @@ def speak_stream(req: SpeakRequest):
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
+def _delete_served_output(path: Path) -> None:
+    # Best-effort: the periodic sweep in _cleanup_loop is the backstop if
+    # this races with it or a client never finishes reading the response.
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 @app.get("/avatar-video/{filename}")
 def get_video(filename: str):
     path = OUTPUT_DIR / filename
     if not path.exists() or ".." in filename:
         raise HTTPException(status_code=404, detail="not found")
     media_type = "audio/wav" if path.suffix.lower() == ".wav" else "video/mp4"
-    return FileResponse(path, media_type=media_type)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        background=BackgroundTask(_delete_served_output, path),
+    )
 
 
 @app.post("/transcribe")
