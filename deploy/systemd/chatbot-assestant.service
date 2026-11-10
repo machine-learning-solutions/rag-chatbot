@@ -1,0 +1,23 @@
+[Unit]
+Description=Chatbot - Assestant voice-avatar BFF (:3001)
+After=network-online.target chatbot-avatar.service
+Wants=network-online.target chatbot-avatar.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/assestant
+ExecStartPre=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/wait-for-avatar.sh
+ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/run-assestant.sh
+User=jadaboawwad
+Group=jadaboawwad
+Environment=PORT=3001
+Environment=AVATAR_URL=http://localhost:8010
+Environment=RAG_BACKEND_URL=http://localhost:8000
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

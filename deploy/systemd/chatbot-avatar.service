@@ -1,0 +1,22 @@
+[Unit]
+Description=Chatbot - Avatar service (Whisper/Piper/Wav2Lip on :8010)
+# Independent of chatbot.service oneshot — model load should not wait on recover.
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/assestant/avatar_service
+ExecStart=/home/jadaboawwad/Files/Software/Repositories/Applications/Portfolio/chatbot/deploy/systemd/run-avatar.sh
+User=jadaboawwad
+Group=jadaboawwad
+# Model load (Whisper + Wav2Lip + GFPGAN) can take several minutes after boot.
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

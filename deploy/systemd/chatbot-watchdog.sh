@@ -13,7 +13,15 @@ ngrok_ok() {
     | grep -q '"public_url"'
 }
 
-if backend_ok && ngrok_ok; then
+avatar_ok() {
+  # Optional until units are installed; treat missing unit as healthy skip.
+  if ! systemctl list-unit-files chatbot-avatar.service &>/dev/null; then
+    return 0
+  fi
+  curl -sf -o /dev/null --max-time 4 http://127.0.0.1:8010/health
+}
+
+if backend_ok && ngrok_ok && avatar_ok; then
   exit 0
 fi
 

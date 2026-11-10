@@ -20,11 +20,16 @@ chmod +x \
   "$SCRIPT_DIR/chatbot-recover.sh" \
   "$SCRIPT_DIR/chatbot-watchdog.sh" \
   "$SCRIPT_DIR/chatbot-resume.sh" \
-  "$SCRIPT_DIR/wait-for-gateway.sh"
+  "$SCRIPT_DIR/wait-for-gateway.sh" \
+  "$SCRIPT_DIR/wait-for-avatar.sh" \
+  "$SCRIPT_DIR/run-avatar.sh" \
+  "$SCRIPT_DIR/run-assestant.sh"
 
 echo "==> Installing systemd units..."
 cp "$SCRIPT_DIR/chatbot.service" /etc/systemd/system/chatbot.service
 cp "$SCRIPT_DIR/chatbot-ngrok.service" /etc/systemd/system/chatbot-ngrok.service
+cp "$SCRIPT_DIR/chatbot-avatar.service" /etc/systemd/system/chatbot-avatar.service
+cp "$SCRIPT_DIR/chatbot-assestant.service" /etc/systemd/system/chatbot-assestant.service
 cp "$SCRIPT_DIR/chatbot-resume.service" /etc/systemd/system/chatbot-resume.service
 cp "$SCRIPT_DIR/chatbot-watchdog.service" /etc/systemd/system/chatbot-watchdog.service
 cp "$SCRIPT_DIR/chatbot-watchdog.timer" /etc/systemd/system/chatbot-watchdog.timer
@@ -41,8 +46,17 @@ systemctl daemon-reload
 echo "==> Enabling services..."
 systemctl enable chatbot.service
 systemctl enable chatbot-ngrok.service
+systemctl enable chatbot-avatar.service
+systemctl enable chatbot-assestant.service
 systemctl enable chatbot-resume.service
 systemctl enable chatbot-watchdog.timer
+
+# Free ngrok = one tunnel. Keep voice-phone unit installed but do not
+# auto-start it on boot so chatbot-ngrok always wins after reboot.
+if systemctl list-unit-files voice-phone-control-ngrok.service &>/dev/null; then
+  systemctl disable voice-phone-control-ngrok.service 2>/dev/null || true
+  echo "    Disabled voice-phone-control-ngrok.service (start manually when needed)"
+fi
 
 echo "==> Starting stack + watchdog..."
 systemctl start chatbot-watchdog.timer
@@ -51,11 +65,14 @@ RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
 # Do not stop ngrok here — recover restarts it if needed.
 su - "$RUN_USER" -c "env HOME='$RUN_HOME' USER='$RUN_USER' bash '$RECOVER'" || true
 systemctl start chatbot-ngrok.service 2>/dev/null || true
+systemctl start chatbot-avatar.service 2>/dev/null || true
+systemctl start chatbot-assestant.service 2>/dev/null || true
 
 echo ""
 echo "Done. Status:"
-systemctl is-active chatbot.service chatbot-ngrok.service chatbot-watchdog.timer
+systemctl is-active chatbot.service chatbot-ngrok.service chatbot-avatar.service chatbot-assestant.service chatbot-watchdog.timer
 systemctl status chatbot-ngrok.service --no-pager -l | tail -5
+systemctl status chatbot-avatar.service --no-pager -l | tail -5
 
 echo ""
 echo "Tunnel URLs:"

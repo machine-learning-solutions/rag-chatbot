@@ -79,17 +79,61 @@ log() { logger -t chatbot-recover "$*"; }
     return 1
   }
 
+  try_systemctl() {
+    # Recover runs as the login user; system units often need polkit auth.
+    systemctl "$@" >/dev/null 2>&1
+  }
+
   restart_ngrok() {
     log "Restarting ngrok tunnel"
-    systemctl reset-failed chatbot-ngrok.service 2>/dev/null || true
-    systemctl restart chatbot-ngrok.service 2>/dev/null \
-      || systemctl start chatbot-ngrok.service
-    for _ in $(seq 1 45); do
+    try_systemctl reset-failed chatbot-ngrok.service || true
+    if ! try_systemctl restart chatbot-ngrok.service && ! try_systemctl start chatbot-ngrok.service; then
+      log "systemctl ngrok failed (polkit?); starting ngrok directly"
+      pkill -u "$(id -un)" -f '/usr/local/bin/ngrok start' 2>/dev/null || true
+      sleep 1
+      # Same tunnel name the unit uses; wait-for-gateway already passed via stack.
+      nohup /usr/local/bin/ngrok start chatbot \
+        >/tmp/chatbot-ngrok-direct.log 2>&1 &
+    fi
+    for _ in $(seq 1 30); do
       ngrok_ok && return 0
       sleep 2
     done
     log "ngrok API still not reporting tunnels"
     return 1
+  }
+
+  avatar_ok() {
+    curl -sf -o /dev/null --max-time 4 http://127.0.0.1:8010/health
+  }
+
+  assestant_ok() {
+    curl -sf -o /dev/null --max-time 4 http://127.0.0.1:3001/avatar/reference.png \
+      || curl -sf -o /dev/null --max-time 4 http://127.0.0.1:3001/
+  }
+
+  ensure_avatar_stack() {
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    if ! avatar_ok; then
+      log "Starting avatar"
+      try_systemctl reset-failed chatbot-avatar.service || true
+      if ! try_systemctl start chatbot-avatar.service; then
+        nohup "$SCRIPT_DIR/run-avatar.sh" >/tmp/chatbot-avatar-direct.log 2>&1 &
+      fi
+    fi
+    # Give avatar a moment to bind before assestant (or wait-for-avatar if unit).
+    for _ in $(seq 1 60); do
+      avatar_ok && break
+      sleep 2
+    done
+    if ! assestant_ok; then
+      log "Starting assestant"
+      try_systemctl reset-failed chatbot-assestant.service || true
+      if ! try_systemctl start chatbot-assestant.service; then
+        nohup "$SCRIPT_DIR/run-assestant.sh" >/tmp/chatbot-assestant-direct.log 2>&1 &
+      fi
+    fi
   }
 
   log "Recover started"
@@ -103,5 +147,7 @@ log() { logger -t chatbot-recover "$*"; }
     restart_ngrok || true
   fi
 
-  log "Recover finished (backend=$(backend_ok && echo ok || echo fail) ngrok=$(ngrok_ok && echo ok || echo fail))"
+  ensure_avatar_stack || true
+
+  log "Recover finished (backend=$(backend_ok && echo ok || echo fail) ngrok=$(ngrok_ok && echo ok || echo fail) avatar=$(avatar_ok && echo ok || echo fail))"
 ) 9>"$LOCK_FILE"

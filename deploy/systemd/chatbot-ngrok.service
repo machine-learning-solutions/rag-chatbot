@@ -1,8 +1,12 @@
 [Unit]
 Description=Chatbot - ngrok tunnel to gateway (port 9080)
-After=network-online.target docker.service chatbot.service
-Wants=network-online.target chatbot.service
-Conflicts=n8n-ngrok.service
+# Do NOT After=chatbot.service — that oneshot recover can block for minutes
+# and also cannot systemctl-start us (polkit). wait-for-gateway.sh is enough.
+After=network-online.target docker.service voice-phone-control-ngrok.service n8n-ngrok.service
+Wants=network-online.target docker.service
+# Free ngrok allows one agent tunnel — chatbot claims it on boot and stops
+# the other ngrok units if they raced ahead.
+Conflicts=n8n-ngrok.service voice-phone-control-ngrok.service
 StartLimitIntervalSec=0
 
 [Service]
