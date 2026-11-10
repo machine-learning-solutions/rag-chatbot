@@ -394,9 +394,21 @@ def speak_stream(req: SpeakRequest):
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
 
+DELETE_AFTER_SERVE_DELAY_SECONDS = 5
+
+
 def _delete_served_output(path: Path) -> None:
-    # Best-effort: the periodic sweep in _cleanup_loop is the backstop if
-    # this races with it or a client never finishes reading the response.
+    # <video>/<audio> elements fetch via HTTP Range (FileResponse supports
+    # it), issuing several separate GETs for the same URL -- one for an
+    # initial probe range, more for the rest of the bytes. Deleting right
+    # after the *first* of those finishes (this used to run inline, with no
+    # delay) left the file gone before the follow-up range requests arrived,
+    # 404ing them and aborting playback mid-chunk (confirmed: browser logs
+    # showed a 200 then a 404 for the identical chunk URL). A short delay
+    # lets same-chunk follow-up requests land first; the periodic sweep in
+    # _cleanup_loop is the backstop if this races with it or a client never
+    # finishes reading the response.
+    time.sleep(DELETE_AFTER_SERVE_DELAY_SECONDS)
     try:
         path.unlink(missing_ok=True)
     except OSError:
@@ -408,11 +420,19 @@ def get_video(filename: str):
     path = OUTPUT_DIR / filename
     if not path.exists() or ".." in filename:
         raise HTTPException(status_code=404, detail="not found")
-    media_type = "audio/wav" if path.suffix.lower() == ".wav" else "video/mp4"
+    is_wav = path.suffix.lower() == ".wav"
+    media_type = "audio/wav" if is_wav else "video/mp4"
+    # The client fetches the master .wav early (as soon as it streams in) to
+    # start audio playback while later chunks are still rendering, but those
+    # later chunks' ffmpeg mux still needs to read this same .wav from disk
+    # (see resident_inference._ffmpeg_cmd). Deleting it on first fetch, like
+    # we do for .mp4 chunks, raced ffmpeg out from under itself and aborted
+    # the stream ("No such file or directory"). The .wav is left for
+    # _cleanup_loop's sweep instead, per speak_stream's own docstring.
     return FileResponse(
         path,
         media_type=media_type,
-        background=BackgroundTask(_delete_served_output, path),
+        background=None if is_wav else BackgroundTask(_delete_served_output, path),
     )
 
 
