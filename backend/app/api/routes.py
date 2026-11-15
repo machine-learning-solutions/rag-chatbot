@@ -95,8 +95,11 @@ async def delete_document(
 async def chat(
     request: ChatRequest,
     http_request: Request,
-    session: AsyncSession = Depends(get_session),
 ):
+    # Do not Depends(get_session) here: StreamingResponse would keep that
+    # connection checked out for the whole RAG+LLM wait and starve the pool
+    # under a few concurrent questions. ChatService opens a short-lived
+    # session only for document-id resolution.
     service = ChatService()
     portfolio_fast = request.portfolio_fast or "PortfolioChat" in (
         http_request.headers.get("user-agent", "")
@@ -107,7 +110,7 @@ async def chat(
     try:
         if wants_stream:
             return StreamingResponse(
-                stream_chat_sse(request, session, portfolio_fast),
+                stream_chat_sse(request, portfolio_fast),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -115,8 +118,6 @@ async def chat(
                     "X-Accel-Buffering": "no",
                 },
             )
-        return await service.chat(
-            request, session=session, portfolio_fast=portfolio_fast
-        )
+        return await service.chat(request, portfolio_fast=portfolio_fast)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}") from exc

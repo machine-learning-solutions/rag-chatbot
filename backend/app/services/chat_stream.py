@@ -6,8 +6,6 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.models.schemas import ChatRequest, ChatResponse
 from app.services.document_service import ChatService
 
@@ -16,7 +14,6 @@ PING_INTERVAL_SECONDS = 3.0
 
 async def stream_chat_sse(
     request: ChatRequest,
-    session: AsyncSession,
     portfolio_fast: bool,
 ) -> AsyncIterator[str]:
     """Yield SSE events: ping while processing, then result or error."""
@@ -24,7 +21,7 @@ async def stream_chat_sse(
 
     service = ChatService()
     task = asyncio.create_task(
-        service.chat(request, session=session, portfolio_fast=portfolio_fast)
+        service.chat(request, portfolio_fast=portfolio_fast)
     )
 
     try:

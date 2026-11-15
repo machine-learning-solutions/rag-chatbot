@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
@@ -44,7 +45,20 @@ class Chunk(Base):
 
 
 settings = get_settings()
-engine = create_async_engine(settings.database_url, echo=False)
+# Default QueuePool is size 5 + overflow 10. Chat used to hold a request
+# session open for the entire RAG+LLM call (tens of seconds), so a handful
+# of concurrent portfolio questions exhausted the pool
+# ("QueuePool limit of size 5 overflow 10 reached, connection timed out").
+# Larger pool + pre_ping is a safety net; the real fix is not holding
+# sessions across generation (see ChatService.chat / routes.chat).
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
 async_session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
 
@@ -53,6 +67,11 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_session() -> AsyncSession:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

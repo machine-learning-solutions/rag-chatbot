@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.models.schemas import ChatRequest, ChatResponse, IngestResponse
-from app.services.database import Chunk, Document
+from app.services.database import Chunk, Document, async_session_factory
 from app.services.ingestion import SUPPORTED_EXTENSIONS, load_document, split_documents
 from app.services.language import resolve_language
 from app.services.hybrid_search import BM25Retriever
@@ -180,11 +180,19 @@ class ChatService:
             reranker,
             bm25=_bm25_retriever,
         )
+        # Hold a DB session only for the cheap document-id lookup. Keeping one
+        # open across retrieve+generate (via the old StreamingResponse path)
+        # exhausted SQLAlchemy's QueuePool under a few concurrent questions.
         scoped_document_id = request.document_id
         if session is not None:
             scoped_document_id = await self._resolve_document_id(
                 session, request.document_id
             )
+        else:
+            async with async_session_factory() as resolve_session:
+                scoped_document_id = await self._resolve_document_id(
+                    resolve_session, request.document_id
+                )
 
         chunks = await retrieval.retrieve(
             query=request.question,
