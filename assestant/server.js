@@ -109,11 +109,25 @@ app.post("/api/speak/stream", async (req, res) => {
     return;
   }
 
+  // When the browser aborts (new question), cancel the upstream avatar
+  // fetch too -- otherwise the GPU lock stays held for a discarded render.
+  // IMPORTANT: listen on `res` close, not `req` close. With express.json(),
+  // `req` emits "close" as soon as the POST body is consumed, which was
+  // aborting every /speak/stream call immediately (client saw 502/499,
+  // no SSE events). Only abort when the *response* socket dies before we
+  // finished writing.
+  const upstreamController = new AbortController();
+  const onClientGone = () => {
+    if (!res.writableEnded) upstreamController.abort();
+  };
+  res.on("close", onClientGone);
+
   try {
     const avatarRes = await fetch(`${AVATAR_URL}/speak/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal: upstreamController.signal,
     });
 
     if (!avatarRes.ok || !avatarRes.body) {
@@ -131,11 +145,23 @@ app.post("/api/speak/stream", async (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     for await (const chunk of avatarRes.body) {
+      if (res.writableEnded || upstreamController.signal.aborted) break;
       res.write(chunk);
     }
-    res.end();
+    if (!res.writableEnded) res.end();
   } catch (err) {
-    res.status(502).json({ error: "Avatar service unreachable", detail: err.message });
+    if (err?.name === "AbortError" || upstreamController.signal.aborted) {
+      if (!res.headersSent) res.status(499).end();
+      else if (!res.writableEnded) res.end();
+      return;
+    }
+    if (!res.headersSent) {
+      res.status(502).json({ error: "Avatar service unreachable", detail: err.message });
+    } else if (!res.writableEnded) {
+      res.end();
+    }
+  } finally {
+    res.off("close", onClientGone);
   }
 });
 

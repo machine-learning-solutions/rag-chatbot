@@ -22,7 +22,7 @@ services:
       # freeing the shared 8GB GPU for other services (e.g. WeInterviewer's
       # SILMA TTS) instead of holding ~7GB forever. First request after an
       # idle period pays a reload cost instead of being instant.
-      OLLAMA_KEEP_ALIVE: "5m"
+      OLLAMA_KEEP_ALIVE: "30m"
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: all
       # Unset ROCm hint so NVIDIA GPU discovery works in Docker (ollama/ollama#11852).
@@ -71,7 +71,7 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: gemma4:e2b
       EMBEDDING_MODEL: intfloat/multilingual-e5-large
-      LLM_TEMPERATURE: "0.3"
+      LLM_TEMPERATURE: "0.1"
       VECTOR_STORE_PATH: /app/data/vector_store
       UPLOAD_DIR: /app/data/uploads
       CHUNK_SIZE: "512"

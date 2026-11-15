@@ -99,18 +99,34 @@ def init(checkpoint_path: str, face_image_path: str, gfpgan_checkpoint_path: str
         _restore_enabled = True
 
 
-def warmup() -> None:
+def warmup(extra_batch_sizes=()) -> None:
     """Run one dummy forward pass through each model at the exact shapes
     generate() uses (full Wav2Lip batch, single GFPGAN call) so cuDNN's
     benchmark-mode algorithm search pays its one-time cost now instead of
-    during the first real request."""
+    during the first real request.
+
+    extra_batch_sizes: additional Wav2Lip batch sizes to warm up besides
+    WAV2LIP_BATCH_SIZE. generate_chunks() (the /speak/stream path) feeds
+    _datagen() one STREAM_CHUNK_SECONDS segment at a time -- frames_per_segment
+    frames, almost never a multiple of WAV2LIP_BATCH_SIZE -- so it always
+    falls through to _datagen's leftover-batch yield at that segment's own
+    (smaller) size, a cuDNN shape this warmup never covered. That meant the
+    *first* real streamed request's first segment (not just the first
+    request ever) paid the one-time autotune cost: confirmed via TIMING
+    logs where segment 0 was wav2lip_fwd=9.8s/restore=13.4s vs ~0.2s/~7s
+    steady-state. Pass the actual streaming batch size here to close that
+    gap.
+    """
     if _model is None or _cached_face is None:
         return
 
-    img_t = torch.zeros(WAV2LIP_BATCH_SIZE, 6, IMG_SIZE, IMG_SIZE, device=DEVICE)
-    mel_t = torch.zeros(WAV2LIP_BATCH_SIZE, 1, 80, MEL_STEP_SIZE, device=DEVICE)
-    with torch.no_grad():
-        _model(mel_t, img_t)
+    for batch_size in {WAV2LIP_BATCH_SIZE, *extra_batch_sizes}:
+        if batch_size <= 0:
+            continue
+        img_t = torch.zeros(batch_size, 6, IMG_SIZE, IMG_SIZE, device=DEVICE)
+        mel_t = torch.zeros(batch_size, 1, 80, MEL_STEP_SIZE, device=DEVICE)
+        with torch.no_grad():
+            _model(mel_t, img_t)
 
     if _restore_enabled:
         face_restore.restore(_cached_face["frame"])

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e2b"
     embedding_model: str = "intfloat/multilingual-e5-large"
-    llm_temperature: float = 0.3
+    llm_temperature: float = 0.1
     llm_num_predict: int = 768
     arabic_polish_enabled: bool = True
     max_context_chunks: int = 5

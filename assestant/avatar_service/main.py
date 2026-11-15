@@ -10,6 +10,7 @@ import os
 # fixed-size block -- PyTorch's own OOM message suggests this exact setting.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+import collections
 import json
 import re
 import sys
@@ -20,9 +21,10 @@ import uuid
 import wave
 from pathlib import Path
 
+import anyio
 import requests
 import torch
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel
@@ -63,9 +65,46 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # (GFPGAN restoration is the fixed-cost bottleneck, already near its measured
 # hardware floor), so for a long answer there's no way to make the full clip
 # render fast -- but the client doesn't need the full clip to start playing,
-# just the first few seconds of it. ~4s keeps time-to-first-chunk low while
-# not fragmenting short answers (which still render as a single chunk).
-STREAM_CHUNK_SECONDS = float(os.environ.get("AVATAR_STREAM_CHUNK_SECONDS", "4.0"))
+# just enough of it buffered (AvatarTalker's minBufferChunks). Shorter
+# segments mean that buffer fills sooner in wall-clock time at the same
+# buffer-count, cutting time-to-first-speech, at the cost of proportionally
+# more segments (more ffmpeg invocations/round-trips) for a given answer.
+STREAM_CHUNK_SECONDS = float(os.environ.get("AVATAR_STREAM_CHUNK_SECONDS", "2.0"))
+
+# Cap how much of an answer the avatar actually speaks. /speak/stream was
+# built to skip the old /speak endpoint's MAX_SPOKEN_CHARS truncation
+# ("streaming is exactly what removes the need for that cap" -- see
+# avatarChat.js) on the theory that the client only needs the first couple
+# of chunks, not the whole clip, to start playing. True for a single
+# visitor, but confirmed live to break down once requests queue: the GPU
+# render step is serialized across concurrent requests (_gpu_render_lock),
+# so one very long answer (e.g. 203 segments, ~400s of speech) holds that
+# lock -- and every other request, even one that arrived earlier -- in
+# total silence for its *entire* render, not just its first couple of
+# chunks. Capping spoken length bounds that worst case. Only the spoken
+# clip is trimmed; the full text answer in the chat UI is unaffected.
+MAX_SPOKEN_CHARS = int(os.environ.get("AVATAR_MAX_SPOKEN_CHARS", "600"))
+
+
+def _truncate_for_speech(text: str) -> str:
+    """Cuts at the last sentence boundary at or before MAX_SPOKEN_CHARS so
+    the clip ends on a natural pause instead of mid-word; falls back to a
+    hard cut if no boundary is found early enough to still be worth
+    keeping. Mirrors avatarChat.js's truncateForSpeech (kept in sync by
+    hand -- there's no shared module between the two services)."""
+    if len(text) <= MAX_SPOKEN_CHARS:
+        return text
+    slice_ = text[:MAX_SPOKEN_CHARS]
+    boundary = max(
+        slice_.rfind("."),
+        slice_.rfind("!"),
+        slice_.rfind("?"),
+        slice_.rfind("؟"),  # Arabic question mark
+        slice_.rfind("۔"),  # Arabic full stop
+    )
+    if boundary > MAX_SPOKEN_CHARS * 0.4:
+        return slice_[: boundary + 1].strip()
+    return slice_.strip()
 
 # Piper length_scale: lower = faster speech. Arabic (kareem) defaults to 1.0
 # and reads slow for portfolio answers; English stays at the model default.
@@ -129,8 +168,13 @@ resident_inference.init(str(CHECKPOINT), str(REFERENCE_FACE), str(GFPGAN_CHECKPO
 
 # Run one throwaway forward pass through each model now, at startup, so
 # cudnn.benchmark's one-time algorithm search (set above) happens here
-# instead of adding its cost to the first real user request.
-resident_inference.warmup()
+# instead of adding its cost to the first real user request. Also warm the
+# /speak/stream segment batch size (frames per STREAM_CHUNK_SECONDS chunk,
+# almost never equal to the full WAV2LIP_BATCH_SIZE) -- see warmup()'s
+# docstring for why that shape needs its own pass.
+resident_inference.warmup(
+    extra_batch_sizes=(round(STREAM_CHUNK_SECONDS * resident_inference.FPS),)
+)
 
 # --- GPU clock keep-alive -----------------------------------------------
 # Profiling found the dominant source of LATENCY VARIANCE (not the ~2.2s
@@ -197,22 +241,84 @@ def _cleanup_loop():
 
 threading.Thread(target=_cleanup_loop, daemon=True).start()
 
+class _FifoLock:
+    """A mutex that wakes waiters in strict arrival order.
+
+    threading.Lock doesn't guarantee that -- confirmed live under this
+    service's real traffic: with a plain Lock, a request that had been
+    waiting the longest was skipped over and over as newer requests kept
+    winning the race to re-acquire the lock each time it was released,
+    leaving it stuck with its TTS already done (its .wav file present on
+    disk) but never getting a turn to render, indefinitely. A FIFO ticket
+    queue closes that: each waiter gets its own Event and is woken exactly
+    in the order it arrived, so no request can be starved by later ones.
+    """
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._waiters: collections.deque[threading.Event] = collections.deque()
+        self._held = False
+
+    def acquire(self) -> None:
+        event = threading.Event()
+        with self._guard:
+            if not self._held:
+                self._held = True
+                return
+            self._waiters.append(event)
+        event.wait()
+
+    def release(self) -> None:
+        with self._guard:
+            if self._waiters:
+                self._waiters.popleft().set()
+            else:
+                self._held = False
+
+    def __enter__(self) -> "_FifoLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.release()
+
+
+# Serializes the actual GPU rendering (Wav2Lip + GFPGAN) across concurrent
+# /speak(/stream) requests. Each handler runs in its own thread (FastAPI's
+# threadpool for sync endpoints), and without this, N simultaneous requests
+# each get a slice of the one GPU and all crawl forward together at ~1/N
+# speed -- confirmed live: 3 concurrent renders each dropped from ~2s/segment
+# to ~5.5s/segment, and VRAM usage from N resident jobs at once pushed free
+# memory down to single-digit MiB. Holding this lock only around the render
+# step (not TTS synthesis, which stays concurrent) means whichever request
+# is already rendering keeps full GPU throughput, and each one finishes
+# sooner in wall-clock time than if all ran half-speed in parallel --
+# at the cost of later requests waiting idle for their turn instead of
+# showing any (slow) progress immediately. A very long answer (minutes of
+# speech) will hold this for its whole render; there's no preemption.
+_gpu_render_lock = _FifoLock()
+
 
 class SpeakRequest(BaseModel):
     text: str
 
 
 def _unload_ollama() -> None:
-    """Best-effort: free Ollama's VRAM before the GPU-heavy Wav2Lip/GFPGAN
-    step below. By the time /speak runs, Ollama has already produced the
-    chat answer this speech is for and has no more work to do this turn --
-    from here its only effect is competing for the same ~8GB the avatar
-    models need (this is what the CUDA OOM in PYTORCH_CUDA_ALLOC_CONF's
-    comment above traced back to: avatar models + a still-warm Ollama left
-    only ~100MB free). keep_alive=0 on a prompt-less generate call is
-    Ollama's documented way to unload immediately rather than waiting out
-    its normal keep-alive window. A small cold-reload cost on Ollama's
-    *next* chat request is a fair trade for not crashing this one.
+    """Best-effort: free Ollama's VRAM. keep_alive=0 on a prompt-less
+    generate call is Ollama's documented way to unload immediately rather
+    than waiting out its normal keep-alive window.
+
+    Used reactively only (from the CUDA OOM fallbacks below), not
+    proactively before every render: this used to run unconditionally on
+    every /speak(/stream) call, which forced a ~8s cold Ollama reload on
+    the visitor's *next* chat message after every avatar turn. Measured
+    under real concurrent load (two simultaneous long avatar renders +
+    an Ollama chat request) with gemma4:e2b resident, the combined
+    footprint held at ~7GB/8GB with no OOM -- comfortably more headroom
+    than the ~100MB-free case that originally motivated unloading
+    unconditionally (likely sized for a bigger model). If that margin
+    ever gets hit in practice, this function is still here as the
+    reactive fallback on actual OutOfMemoryError.
     """
     try:
         requests.post(
@@ -256,23 +362,21 @@ def speak(req: SpeakRequest):
         synthesize_speech(text, wav_path, voice)
         _t_tts = time.perf_counter()
 
-        # Ollama has already done its job for this turn (producing the chat
-        # answer we're now speaking) -- give its VRAM back before the
-        # GPU-heavy step below needs it. See _unload_ollama()'s docstring.
-        _unload_ollama()
-
-        try:
-            generate_lipsync_video(wav_path, video_path)
-        except torch.cuda.OutOfMemoryError:
-            # Fallback in case the unload above didn't free enough in time
-            # (e.g. Ollama was mid-generation for a *different* request).
-            # empty_cache() only frees blocks *this* process was holding but
-            # not using, so a brief wait first gives Ollama's unload a moment
-            # to actually land before retrying into the same contention.
-            print("[WARN] /speak: CUDA OOM, retrying once in 2s after cache clear", flush=True)
-            torch.cuda.empty_cache()
-            time.sleep(2)
-            generate_lipsync_video(wav_path, video_path)
+        with _gpu_render_lock:
+            try:
+                generate_lipsync_video(wav_path, video_path)
+            except torch.cuda.OutOfMemoryError:
+                # Reactive fallback: Ollama isn't unloaded proactively anymore
+                # (see _unload_ollama()'s docstring), so free its VRAM now and
+                # retry. A brief wait first gives the unload a moment to
+                # actually land before retrying into the same contention;
+                # empty_cache() only frees blocks *this* process was holding
+                # but not using.
+                print("[WARN] /speak: CUDA OOM, unloading Ollama and retrying once in 2s", flush=True)
+                _unload_ollama()
+                torch.cuda.empty_cache()
+                time.sleep(2)
+                generate_lipsync_video(wav_path, video_path)
 
         _t_video = time.perf_counter()
         print(
@@ -305,7 +409,7 @@ def _sse(data: dict) -> str:
 
 
 @app.post("/speak/stream")
-def speak_stream(req: SpeakRequest):
+def speak_stream(req: SpeakRequest, request: Request):
     """Like /speak, but emits each ~STREAM_CHUNK_SECONDS segment as an SSE
     event as soon as it's ready, instead of waiting for the whole clip.
     Lets the client start playback after the first segment (a few seconds)
@@ -327,7 +431,7 @@ def speak_stream(req: SpeakRequest):
     may still be playing it after the last video chunk arrives. The output
     sweeper removes it after OUTPUT_MAX_AGE_SECONDS.
     """
-    text = req.text.strip()
+    text = _truncate_for_speech(req.text.strip())
     if not text:
         raise HTTPException(status_code=400, detail="text must not be empty")
 
@@ -341,10 +445,6 @@ def speak_stream(req: SpeakRequest):
             synthesize_speech(text, wav_path, voice)
             _t_tts = time.perf_counter()
 
-            # Same reasoning as /speak: Ollama's done its job for this turn,
-            # give its VRAM back before the GPU-heavy step needs it.
-            _unload_ollama()
-
             # Full TTS wav first so the client can play one unbroken audio
             # track while lip-sync video chunks swap underneath.
             yield _sse(
@@ -357,25 +457,49 @@ def speak_stream(req: SpeakRequest):
             def out_path_fn(i):
                 return str(OUTPUT_DIR / f"{job_id}_{i}.mp4")
 
-            for (
-                seg_path,
-                seg_index,
-                is_last,
-                chunk_start,
-                chunk_duration,
-            ) in resident_inference.generate_chunks(
-                str(wav_path), out_path_fn, chunk_seconds=STREAM_CHUNK_SECONDS
-            ):
-                filename = Path(seg_path).name
-                yield _sse(
-                    {
-                        "chunk_index": seg_index,
-                        "chunk_start": chunk_start,
-                        "chunk_duration": chunk_duration,
-                        "video_url": f"/avatar-video/{filename}",
-                        "is_last": is_last,
-                    }
-                )
+            # Held for the whole render, across every yield below -- see
+            # _gpu_render_lock's module-level comment for why.
+            with _gpu_render_lock:
+                for (
+                    seg_path,
+                    seg_index,
+                    is_last,
+                    chunk_start,
+                    chunk_duration,
+                ) in resident_inference.generate_chunks(
+                    str(wav_path), out_path_fn, chunk_seconds=STREAM_CHUNK_SECONDS
+                ):
+                    # This generator runs in Starlette's threadpool (sync
+                    # StreamingResponse body), so anyio.from_thread.run() is the
+                    # correct way to call back into the event loop and check
+                    # whether the client already left -- e.g. the frontend
+                    # aborted this stream because a new question came in. Can't
+                    # interrupt the segment that's already mid-GPU-call, but this
+                    # stops the *next* one from starting, bounding wasted GPU
+                    # work to a single in-flight segment instead of the whole
+                    # (potentially minutes-long) clip.
+                    try:
+                        client_gone = anyio.from_thread.run(request.is_disconnected)
+                    except Exception:
+                        client_gone = False
+                    if client_gone:
+                        print(
+                            f"[INFO] /speak/stream client disconnected, stopping "
+                            f"after segment {seg_index} text_len={len(text)}",
+                            flush=True,
+                        )
+                        return
+
+                    filename = Path(seg_path).name
+                    yield _sse(
+                        {
+                            "chunk_index": seg_index,
+                            "chunk_start": chunk_start,
+                            "chunk_duration": chunk_duration,
+                            "video_url": f"/avatar-video/{filename}",
+                            "is_last": is_last,
+                        }
+                    )
 
             _t_video = time.perf_counter()
             print(
@@ -389,6 +513,18 @@ def speak_stream(req: SpeakRequest):
                 f"text_len={len(text)} text={text[:300]!r}",
                 flush=True,
             )
+            if isinstance(exc, torch.cuda.OutOfMemoryError):
+                # Ollama isn't unloaded proactively anymore (see
+                # _unload_ollama()'s docstring) -- react to an actual OOM by
+                # freeing its VRAM so at least the *next* request isn't
+                # starved by the same contention. Not worth retrying
+                # mid-stream here (unlike /speak's single-shot retry): the
+                # client already has however many segments arrived before
+                # this, and re-rendering from segment 0 would replay audio
+                # the client already played.
+                print("[WARN] /speak/stream: CUDA OOM, unloading Ollama", flush=True)
+                _unload_ollama()
+                torch.cuda.empty_cache()
             yield _sse({"error": str(exc)})
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")

@@ -27,7 +27,10 @@ start() {
   echo "Starting avatar service on :8010..."
   (cd "$DIR/avatar_service" && source .venv/bin/activate && nohup python -m uvicorn main:app --host 0.0.0.0 --port 8010 > "$DIR/.avatar.log" 2>&1 &)
   echo "Starting chat server on :$NODE_PORT..."
-  (cd "$DIR" && PORT="$NODE_PORT" nohup node server.js > "$DIR/.node.log" 2>&1 &)
+  # setsid detaches from the caller’s session so Cursor/agent shells don’t
+  # reap the process when their command ends (plain nohup background jobs
+  # were dying within ~1 minute and nginx then 502’d /avatar-api).
+  (cd "$DIR" && setsid nohup env PORT="$NODE_PORT" node server.js >> "$DIR/.node.log" 2>&1 < /dev/null &)
   sleep 1
   echo "Started. Logs: $DIR/.avatar.log , $DIR/.node.log"
   echo "Open http://localhost:$NODE_PORT"
