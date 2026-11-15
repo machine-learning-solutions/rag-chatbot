@@ -1002,28 +1002,28 @@ class GenerationService:
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.llm_num_predict,
-            num_ctx=2048,
+            num_ctx=4096,
         ).bind(think=False)
         self.portfolio_llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.portfolio_llm_num_predict,
-            num_ctx=4096,
+            num_ctx=8192,
         ).bind(think=False)
         self.portfolio_llm_medium = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.portfolio_llm_num_predict_medium,
-            num_ctx=4096,
+            num_ctx=8192,
         ).bind(think=False)
         self.portfolio_llm_short = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             temperature=settings.llm_temperature,
             num_predict=settings.portfolio_llm_num_predict_short,
-            num_ctx=4096,
+            num_ctx=8192,
         ).bind(think=False)
 
     def _portfolio_llm_for(self, question: str):
