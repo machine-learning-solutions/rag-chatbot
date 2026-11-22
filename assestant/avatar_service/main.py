@@ -128,8 +128,12 @@ app = FastAPI()
 # Dual Whisper: English large-v3-turbo stays on GPU for fast mic turns.
 # Arabic multi-dialect CT2 fine-tune stays on CPU (int8) so its weights do
 # not compete with Wav2Lip/GFPGAN on this 8GB card during /speak/stream --
-# mic clips are short enough that CPU AR STT is acceptable.
+# mic clips are short enough that CPU AR STT is acceptable. Set
+# WHISPER_EN_DEVICE=cpu (+ WHISPER_EN_COMPUTE_TYPE=int8) if Ollama's model
+# grows too large to leave English Whisper's ~1.5-2GB GPU footprint free.
 WHISPER_EN_MODEL_ID = os.environ.get("WHISPER_EN_MODEL", "large-v3-turbo")
+WHISPER_EN_DEVICE = os.environ.get("WHISPER_EN_DEVICE", "cuda")
+WHISPER_EN_COMPUTE_TYPE = os.environ.get("WHISPER_EN_COMPUTE_TYPE", "int8_float16")
 WHISPER_AR_MODEL_ID = os.environ.get(
     "WHISPER_AR_MODEL",
     "dev-ahmedhany/whisper-large-v3-turbo-arabic-ft-ct2-int8",
@@ -148,7 +152,7 @@ def _load_whisper(model_id: str, device: str, compute_type: str) -> WhisperModel
         return WhisperModel(model_id, device="cpu", compute_type="int8")
 
 
-WHISPER_MODEL_EN = _load_whisper(WHISPER_EN_MODEL_ID, "cuda", "float16")
+WHISPER_MODEL_EN = _load_whisper(WHISPER_EN_MODEL_ID, WHISPER_EN_DEVICE, WHISPER_EN_COMPUTE_TYPE)
 try:
     WHISPER_MODEL_AR = _load_whisper(WHISPER_AR_MODEL_ID, "cpu", "int8")
 except Exception as exc:
